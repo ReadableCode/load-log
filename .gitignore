@@ -1,0 +1,16 @@
+.vs
+data/
+.env
+build/
+__pycache__/
+*.pyc
+*.egg-info/
+.mypy_cache/
+.venv/
+logs/
+configuration.json
+node_modules/
+dist/
+cache/
+local/
+**/.claude/settings.local.json
