@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: load_log_api
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      POSTGRES_URL: ${POSTGRES_URL}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB:-load_log}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8004:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: load_log_web
+    command:
+      - uv
+      - run
+      - streamlit
+      - run
+      - src/web/app.py
+      - --server.port=8505
+      - --server.address=0.0.0.0
+      - --server.headless=true
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      POSTGRES_URL: ${POSTGRES_URL}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB:-load_log}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8505:8505"
+    restart: unless-stopped

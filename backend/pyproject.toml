@@ -1,0 +1,41 @@
+[project]
+name = "load_log"
+version = "0.1.0"
+description = "Load Log backend"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=5.0",
+    "black>=25.9.0",
+    "fastapi>=0.115.0",
+    "flake8>=7.3.0",
+    "httpx>=0.28.1",
+    "ipykernel>=6.29.5",
+    "ipython>=9.4.0",
+    "isort>=8.0.1",
+    "pandas>=2.3.1",
+    "psycopg2-binary>=2.9",
+    "pydantic>=2.0",
+    "pytest>=8.4.2",
+    "python-dotenv>=1.1.1",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.43",
+    "streamlit>=1.40",
+    "textual>=0.80",
+    "uvicorn>=0.34.0",
+]
+
+[project.scripts]
+load_log = "main:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.flake8]
+max-line-length = 120
+max-complexity = 15
+extend-ignore = ["E203", "W503"]
+
+[tool.mypy]
+ignore_missing_imports = true
+show_error_codes = true
