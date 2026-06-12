@@ -17,15 +17,19 @@ See `backend/docs/architecture.md`, `backend/docs/schema.md`, and `backend/docs/
 ## Source Layout
 
 ```text
-backend/src/
-├── config.py       # env vars, path resolution
-├── db.py           # psycopg2 pool, ensure_database_exists, ensure_tables
-├── habits.py       # all SQL for habit tracker
-├── workouts.py     # all SQL for workout tracker
-├── api.py          # FastAPI routes (thin wrappers)
-├── main.py         # CLI entry point
-├── tui/            # Textual TUI screens
-└── web/            # Streamlit app
+backend/
+├── src/
+│   ├── config.py     # env vars, walks up to find .env
+│   ├── db.py         # psycopg2 pool, ensure_database_exists, ensure_tables
+│   ├── habits.py     # all SQL for habit tracker
+│   ├── workouts.py   # all SQL for workout tracker (date-based, no sessions)
+│   ├── api.py        # FastAPI routes (thin wrappers)
+│   ├── main.py       # CLI entry point
+│   ├── tui/          # Textual TUI (app.py, habits.py, workouts.py)
+│   └── web/          # Streamlit app (app.py)
+├── tests/            # conftest.py forces POSTGRES_DB=load_log_test
+├── scripts/          # explicit DB migrations (e.g. migrate_drop_sessions.py)
+└── docs/             # architecture / schema / features
 ```
 
 ## Commands
@@ -96,6 +100,35 @@ In both setups API maps to host port `8004`, Streamlit to `8505`.
 - DB functions return `dict`, `list[dict]`, or `pd.DataFrame`, never raw cursor rows
 - No ORM — raw psycopg2 with `%s` parameter binding
 - Flake8: max line length 120, max complexity 15
+
+## Safety Rules (Database)
+
+- **Never** add `DROP`, `TRUNCATE`, `ALTER COLUMN`, or `DELETE` without
+  `WHERE` to any startup/bootstrap path. If `db.ensure_tables()` detects
+  legacy schema, it raises and aborts — it does **not** mutate.
+- Schema migrations live in `backend/scripts/` as explicit one-shot scripts
+  that the user runs by hand. Each one must `CREATE TABLE … AS SELECT`
+  backup tables (`*_backup_YYYYMMDD_HHMMSS`) before any destructive
+  operation.
+- Tests **must** run against `load_log_test`. `tests/conftest.py` sets
+  `POSTGRES_DB` via `os.environ` before any `db`/`config` import. Do not
+  weaken or remove that override.
+- Confirm with the user before running any ad-hoc `psql`/`docker exec`
+  command that mutates rows in the shared Postgres, regardless of how
+  confident you are that they're "test data."
+
+## TUI Design Rules (Textual)
+
+- Two header lines per screen: bold `#title` (screen name only) and muted
+  `#subtitle` (one explanatory sentence).
+- Footer is the **only** place that lists keyboard shortcuts. Do not put
+  `[a]dd · [w]orkouts · [q]uit` style hints in titles, panels, or anywhere
+  else — the bracketed notation reads as missing characters and is not
+  clickable in VSCode terminal, which mismatches the Footer's clickable
+  hot-spots.
+- Avoid `border: tall …` on single-row cells: it overflows into adjacent
+  rows. Use glyph swaps (e.g., `◉` for today vs `■` for any other day) and
+  `text-style: bold` instead.
 
 ## Environment
 

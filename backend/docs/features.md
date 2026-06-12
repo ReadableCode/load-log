@@ -239,13 +239,31 @@ GET    /exercises/{id}/suggestion?workout_date=YYYY-MM-DD
 
 ---
 
-## Build Order
+## Status
 
-1. `db.py` — pool, ensure_database_exists, ensure_tables
-2. `habits.py` — all habit functions + tests
-3. `workouts.py` — all workout functions + tests
-4. `api.py` — add all routes (habits + workouts)
-5. `web/app.py` — Streamlit UI, habits page first, then workouts
-6. `tui/app.py` + `tui/habits.py` + `tui/workouts.py` — Textual TUI
-7. Update `pyproject.toml` with new deps
-8. Update `CLAUDE.md` with new run commands
+All eight items of the original build order are complete:
+
+1. ✅ `db.py` — pool, `ensure_database_exists` (auto-refreshes glibc
+   collation), `ensure_tables` (no-DROP, raises on legacy schema).
+2. ✅ `habits.py` — CRUD + heatmap completions + streak.
+3. ✅ `workouts.py` — date-keyed sets (no session table), volume aggregation,
+   progressive-overload suggestion.
+4. ✅ `api.py` — habit + workout routes, plus `DELETE /sets/{id}` and
+   `GET /workouts/volume`.
+5. ✅ `web/app.py` — Streamlit with clickable Altair heatmaps (habit
+   completion + workout volume) and per-set prefill.
+6. ✅ `tui/` — Textual screens with clickable heatmap grids and Enter-to-log
+   form on the workouts screen. Design rules in [tui-design memory] and
+   above.
+7. ✅ `pyproject.toml` — `psycopg2-binary`, `textual`, `streamlit`,
+   `altair`, `pydantic`, `flake8`.
+8. ✅ `CLAUDE.md` updated with run commands and safety rules.
+
+Plus added after the fact:
+
+- `tests/conftest.py` forces `POSTGRES_DB=load_log_test` so test runs can
+  never touch production.
+- `backend/scripts/migrate_drop_sessions.py` — the explicit, backup-first
+  migration from the legacy session-based schema.
+- `docker-compose.yml` (repo root) — DB-less, connects out to the shared
+  Postgres via `${POSTGRES_URL}` in `.env`.

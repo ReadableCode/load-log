@@ -10,30 +10,33 @@ Fast, lightweight, easy to read. Three ways to use the same data — TUI for qui
 load-log/
 ├── backend/
 │   ├── src/
-│   │   ├── config.py          # env vars, path resolution (exists)
-│   │   ├── db.py              # connection pool, ensure_database_exists, ensure_tables
+│   │   ├── config.py          # env vars; walks up dirs to find .env
+│   │   ├── db.py              # pool, ensure_database_exists (+ collation refresh),
+│   │   │                      # ensure_tables (never drops; raises on drift)
 │   │   ├── habits.py          # all SQL for habit tracker
-│   │   ├── workouts.py        # all SQL for workout tracker
-│   │   ├── api.py             # FastAPI routes (thin wrappers around habits/workouts)
-│   │   ├── main.py            # CLI entry point (exists)
+│   │   ├── workouts.py        # all SQL for workout tracker (date-keyed sets)
+│   │   ├── api.py             # FastAPI routes (thin wrappers)
+│   │   ├── main.py            # CLI entry point
 │   │   ├── tui/
-│   │   │   ├── __init__.py
-│   │   │   ├── app.py         # Textual app root, screen switcher
-│   │   │   ├── habits.py      # Textual screen for habit tracker
-│   │   │   └── workouts.py    # Textual screen for workout tracker
+│   │   │   ├── app.py         # Textual app root, BINDINGS h/w/q
+│   │   │   ├── habits.py      # HabitsScreen (ListView) + HabitDetailScreen (heatmap)
+│   │   │   └── workouts.py    # WorkoutsScreen (volume heatmap + stacked form)
 │   │   └── web/
-│   │       └── app.py         # Streamlit app (multi-page via st.sidebar)
+│   │       └── app.py         # Streamlit; habits + workouts pages
 │   ├── tests/
-│   │   ├── conftest.py        # app_client fixture (exists)
+│   │   ├── conftest.py        # forces POSTGRES_DB=load_log_test
 │   │   ├── test_habits.py
 │   │   └── test_workouts.py
-│   ├── docs/                  # plan documents (this directory)
-│   ├── scripts/               # one-off utility scripts
+│   ├── scripts/               # explicit DB migrations
+│   │   └── migrate_drop_sessions.py   # legacy session-schema → date-only sets
+│   ├── docs/                  # this directory: architecture / schema / features
 │   ├── pyproject.toml
 │   └── Dockerfile
+├── docker-compose.yml         # portable dev stack (talks to shared Postgres)
 ├── data/                      # personal goal markdown files
 ├── CLAUDE.md
-└── .env
+├── .env.example
+└── .env                       # NOT committed
 ```
 
 ## Tech Stack
