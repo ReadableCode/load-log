@@ -108,80 +108,31 @@ POSTGRES_PORT=5432
 
 ## Docker Compose Deployment
 
-Load Log ships with two compose setups, **both of which connect to the same
-shared Postgres** running on the home server (defined in
-`/Users/jason/GitHub/Docker/docker_compose_projects.yaml`). We never host our
-own Postgres — there is one source of truth for the data.
+Load Log has two compose setups, **both connecting to the same shared
+Postgres** on the EliteDesk host (defined in
+`/Users/jason/GitHub/Docker/docker_compose_projects.yaml`). We never host
+our own DB — single source of truth for the data.
 
-1. **Portable dev stack** — `docker-compose.yml` at the repo root. Runs the API
-   and Streamlit containers on any machine that has the repo checked out and an
-   `.env` pointing at the shared Postgres. Host ports: API `8004`, Web `8505`.
-2. **Server deployment** — service blocks added to the central compose file at
-   `/Users/jason/GitHub/Docker/docker_compose_projects.yaml`, where the shared
-   `postgres` service already lives.
+1. **Local stack** — `docker-compose.yml` at the repo root. Use it on the Mac
+   when you want to run the containers against the shared Postgres without
+   touching the EliteDesk. Bring it up with `docker-compose up -d --build`
+   and tear it down with `docker-compose down`.
+2. **EliteDesk deployment** — the two service blocks already appended to
+   `docker_compose_projects.yaml` (services `load-log-fastapi` and
+   `load-log-streamlit`). Deploy commands come from `Docker/README.md` and
+   run on the EliteDesk; see the section below.
 
-### Local: `docker-compose.yml` (repo root)
+### Port assignments
 
-The Mac host runs Docker through **colima** (Homebrew install). It is **not**
-configured as a brew background service, so it has to be started manually
-each session before any `docker` / `docker-compose` command will work:
+| Service              | Host port | Container port |
+|----------------------|-----------|----------------|
+| load-log-fastapi     | 8004      | 8000           |
+| load-log-streamlit   | 8505      | 8505           |
 
-```bash
-# Start the Docker VM (default profile: 2 CPU / 2 GiB RAM / 100 GiB disk).
-colima start
+Port 8000 is already taken by `duck_db_api`; 8505 is the next free Streamlit
+slot after `crowncentral` (8503).
 
-# Optional: bump resources — Postgres + 2 Python services on 2 GiB is tight.
-colima start --cpu 4 --memory 6
-
-# Verify it's up.
-colima status
-docker info | head -5
-
-# Stop the VM when done (containers persist, restart with `colima start`).
-colima stop
-```
-
-Once colima is running, bring up the stack:
-
-```bash
-# from /Users/jason/GitHub/load-log
-docker-compose up -d --build         # bring up postgres + api + web
-docker-compose logs -f api           # tail api logs
-docker-compose down                  # stop everything (data persists in named volume)
-docker-compose down -v               # stop and wipe DB
-```
-
-Use `docker-compose` (Homebrew formula) on this machine — the v2 `docker compose`
-plugin isn't installed.
-
-The local compose:
-
-- Does **not** include a Postgres service. Both containers read
-  `POSTGRES_URL` / `POSTGRES_PORT` / `POSTGRES_USER` / `POSTGRES_PASSWORD`
-  from `.env` via variable substitution and connect out to the shared DB.
-- That means whatever machine you run `docker-compose up` from will write to
-  the **same** Postgres as the server deployment — no schema drift, no test
-  data living in a parallel local DB.
-- Requirement: the shared Postgres host (whatever `POSTGRES_URL` points at)
-  must be reachable from inside Docker's network on this machine. On a Mac
-  with colima this works automatically for LAN IPs since the colima VM
-  bridges to the host network.
-
-Use `localhost:5433` from the host (`psql`, host-side pytest) to reach the
-bundled DB.
-
-### Production deployment
-
-#### Port assignments
-
-| Service        | Host port | Container port |
-|----------------|-----------|----------------|
-| load-log-api   | 8004      | 8000           |
-| load-log-web   | 8505      | 8505           |
-
-Port 8000 is already taken by `duck_db_api`; 8505 is the next free Streamlit slot after `crowncentral` (8503).
-
-#### Services to add to docker_compose_projects.yaml
+### Services already appended to docker_compose_projects.yaml
 
 ```yaml
   load-log-fastapi:
@@ -235,12 +186,43 @@ Service names are deliberately `load-log-fastapi` / `load-log-streamlit` (not
 These two services connect to the in-file `postgres` service via service name,
 just like the portable dev stack connects to it via its LAN address.
 
-#### Deploy steps (when ready)
+### EliteDesk deploy — commands (from `Docker/README.md`)
 
-1. Add the two service blocks above to `docker_compose_projects.yaml`
-2. Ensure `POSTGRES_USER` / `POSTGRES_PASSWORD` are set in the prod-host `.env`
-   (the postgres service in that file already reads them)
-3. `docker compose -f docker_compose_projects.yaml up -d --build load-log-fastapi load-log-streamlit`
+Run these on the EliteDesk host after pulling the latest `Docker/` repo (and
+the latest `load-log/` repo, since the compose `build:` contexts point at
+`../load-log/backend`):
+
+```bash
+# 1. Stop the systemd unit that manages the stack
+sudo systemctl stop docker_compose_projects.service
+
+# 2. Bring the stack down cleanly, removing orphans from any service blocks
+#    you previously deleted
+sudo docker-compose -f docker_compose_projects.yaml down --remove-orphans
+
+# 3. Pull newer images for every "internet" service (postgres, swag, plex, ...)
+sudo docker-compose -f docker_compose_projects.yaml pull
+
+# 4. Optional: prune dangling images to free disk
+sudo docker image prune -f
+
+# 5. Rebuild every "your code" service, including the two load-log services
+sudo docker-compose -f docker_compose_projects.yaml build
+
+# 6. Bring everything back up
+sudo docker-compose -f docker_compose_projects.yaml up -d
+
+# 7. Re-enable systemd management
+sudo systemctl start docker_compose_projects.service
+```
+
+If you only need to rebuild and restart **just the load-log services**
+without touching anything else:
+
+```bash
+sudo docker-compose -f docker_compose_projects.yaml up -d --no-deps --build \
+    load-log-fastapi load-log-streamlit
+```
 
 ## Code Style Rules
 

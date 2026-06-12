@@ -4,7 +4,7 @@
 
 ## Feature 1: Daily Habit Tracker
 
-### What it does
+### Habit tracker — what it does
 
 The user defines habits they want to do every day (e.g., "10,000 steps", "30 pushups"). For each habit, the app renders a GitHub-style contribution heatmap showing the last 52 weeks. The user can check off any day — past, today, or future — with a single click/keypress.
 
@@ -35,11 +35,12 @@ def get_completion_counts(days: int = 7) -> dict[int, int]
 
 ---
 
-### Web UI (`web/app.py` — Streamlit)
+### Web UI — habits (`web/app.py` — Streamlit)
 
 **Sidebar:** list of all habits with an "+ Add Habit" text input and submit button.
 
 **Main area:** one expander per habit showing:
+
 - Habit name + streak count (current consecutive days ending today)
 - GitHub-style heatmap (52 weeks × 7 days grid)
   - Built with Altair: a rect mark where x=week_number, y=day_of_week, color=completed (bool)
@@ -52,7 +53,7 @@ def get_completion_counts(days: int = 7) -> dict[int, int]
 
 ---
 
-### TUI (`tui/habits.py` — Textual)
+### TUI — habits (`tui/habits.py` — Textual)
 
 Screen layout:
 
@@ -86,7 +87,7 @@ Design rules for the TUI (apply across both screens):
 
 ## Feature 2: Workout Tracker
 
-### What it does
+### Workout tracker — what it does
 
 The user logs a workout session set by set. They pick an exercise name (autocompleted from history), then enter sets one at a time: reps and weight. After each set they can add another or move to the next exercise. The app always shows the last time they did that exercise so they know what to beat. Session notes are optional. After saving, the app shows whether to go up in weight next time.
 
@@ -128,7 +129,7 @@ def suggest_next_weight(exercise_id: int, current_date: date) -> float | None
 
 ---
 
-### Web UI (`web/app.py` — Streamlit)
+### Web UI — workouts (`web/app.py` — Streamlit)
 
 **Volume heatmap** at the top (GitHub-style, 52 × 7). Color shade is graded by
 total daily volume (`reps × weight` summed across all sets that day) using
@@ -137,7 +138,7 @@ becomes the active workout date.
 
 **Day editor** below the heatmap, for the picked date:
 
-```
+```text
 Selected: Thu Jun 11, 2026 — volume 4,320 lbs
 
 New exercise: [___________]    Existing: [bench press ▼]
@@ -167,7 +168,7 @@ next set is one Enter away.
 
 ---
 
-### TUI (`tui/workouts.py` — Textual)
+### TUI — workouts (`tui/workouts.py` — Textual)
 
 Same model as the Streamlit page: a volume heatmap drives date selection.
 
