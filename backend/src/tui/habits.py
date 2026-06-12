@@ -7,7 +7,16 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, Static
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Static,
+)
 
 import habits as habits_mod
 
@@ -16,24 +25,9 @@ import habits as habits_mod
 
 HEATMAP_WEEKS = 18  # ~4 months fits comfortably in a standard terminal
 
+
 # %%
-# Widgets #
-
-
-class HabitRow(Horizontal):
-    def __init__(self, habit: dict, done_today: bool, streak: int):
-        super().__init__(classes="row")
-        self.habit = habit
-        self.done_today = done_today
-        self.streak = streak
-
-    def compose(self) -> ComposeResult:
-        mark = "✓" if self.done_today else "✗"
-        yield Static(f"{mark}  {self.habit['name']}", classes="hname")
-        yield Static(f"streak: {self.streak}d", classes="hstreak")
-        yield Button("Toggle today", id=f"toggle-{self.habit['id']}", variant="primary")
-        yield Button("View", id=f"view-{self.habit['id']}")
-        yield Button("Delete", id=f"delete-{self.habit['id']}", variant="error")
+# Heatmap cell #
 
 
 class DaySelected(Message):
@@ -53,14 +47,16 @@ class DayCell(Static):
     DayCell.empty { background: #ebedf0; color: #999; }
     DayCell.done  { background: #216e39; color: white; }
     DayCell.future { background: #f6f8fa; color: #ccc; }
-    DayCell.today { border: tall #ff8c00; }
+    DayCell.today { text-style: bold; color: #ff8c00; }
+    DayCell.today.done { color: #ffcc00; }
     DayCell.selected { background: #ffcc00; color: black; text-style: bold; }
     """
 
-    can_focus = True
+    GLYPH_DEFAULT = "■"
+    GLYPH_TODAY = "◉"
 
     def __init__(self, day_date: date, completed: bool, is_today: bool, is_future: bool):
-        super().__init__("■")
+        super().__init__(self.GLYPH_TODAY if is_today else self.GLYPH_DEFAULT)
         self.day_date = day_date
         self.completed = completed
         self.is_today = is_today
@@ -83,66 +79,115 @@ class DayCell(Static):
 
 
 # %%
+# Habit list item #
+
+
+class HabitItem(ListItem):
+    def __init__(self, habit: dict, done_today: bool, streak: int):
+        check = "✓" if done_today else "✗"
+        name = habit["name"]
+        text = f" {check}  {name:<28}  streak: {streak:>3}d"
+        super().__init__(Label(text))
+        self.habit = habit
+
+
+# %%
 # Habits list screen #
 
 
 class HabitsScreen(Screen):
-    BINDINGS = [("a", "focus_add", "Add habit")]
+    BINDINGS = [
+        ("a", "focus_add", "Add"),
+        ("enter", "view_selected", "View"),
+        ("space", "toggle_today_selected", "Toggle today"),
+        ("delete", "delete_selected", "Delete"),
+    ]
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        yield Static("Habits — [h]abits, [w]orkouts, [q]uit", id="title")
+        yield Static("Habits", id="title")
+        yield Static(
+            "Daily tracker — pick a habit and view its heatmap.",
+            id="subtitle",
+        )
         with Vertical(classes="panel"):
-            yield Static("Add a new habit:")
             with Horizontal(classes="row"):
-                yield Input(placeholder="e.g. 10,000 steps", id="new-habit")
+                yield Input(placeholder="new habit name…", id="new-habit")
                 yield Button("Add", id="add-habit", variant="success")
-        yield VerticalScroll(id="habit-list", classes="panel")
+        yield ListView(id="habit-list")
         yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_list()
 
-    def action_focus_add(self) -> None:
-        self.query_one("#new-habit", Input).focus()
-
     def refresh_list(self) -> None:
-        container = self.query_one("#habit-list", VerticalScroll)
-        container.remove_children()
+        lv = self.query_one("#habit-list", ListView)
+        keep_index = lv.index or 0
+        lv.clear()
         today = date.today()
         for h in habits_mod.get_all_habits():
             completions = set(habits_mod.get_completions(h["id"], days=30))
-            container.mount(
-                HabitRow(
+            lv.append(
+                HabitItem(
                     habit=h,
                     done_today=today in completions,
                     streak=habits_mod.get_current_streak(h["id"]),
                 )
             )
+        if len(lv):
+            lv.index = min(keep_index, len(lv) - 1)
+
+    # %%
+    # Actions #
+
+    def action_focus_add(self) -> None:
+        self.query_one("#new-habit", Input).focus()
+
+    def _selected(self) -> HabitItem | None:
+        lv = self.query_one("#habit-list", ListView)
+        item = lv.highlighted_child
+        return item if isinstance(item, HabitItem) else None
+
+    def action_view_selected(self) -> None:
+        item = self._selected()
+        if item is not None:
+            self.app.push_screen(HabitDetailScreen(item.habit))
+
+    def action_toggle_today_selected(self) -> None:
+        item = self._selected()
+        if item is not None:
+            habits_mod.toggle_completion(item.habit["id"], date.today())
+            self.refresh_list()
+
+    def action_delete_selected(self) -> None:
+        item = self._selected()
+        if item is not None:
+            habits_mod.delete_habit(item.habit["id"])
+            self.refresh_list()
+
+    # %%
+    # Events #
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        if button_id == "add-habit":
+        if event.button.id == "add-habit":
             inp = self.query_one("#new-habit", Input)
             name = inp.value.strip()
             if name:
                 habits_mod.add_habit(name)
                 inp.value = ""
                 self.refresh_list()
-        elif button_id.startswith("toggle-"):
-            habit_id = int(button_id.split("-", 1)[1])
-            habits_mod.toggle_completion(habit_id, date.today())
-            self.refresh_list()
-        elif button_id.startswith("view-"):
-            habit_id = int(button_id.split("-", 1)[1])
-            all_habits = habits_mod.get_all_habits()
-            habit = next((h for h in all_habits if h["id"] == habit_id), None)
-            if habit:
-                self.app.push_screen(HabitDetailScreen(habit))
-        elif button_id.startswith("delete-"):
-            habit_id = int(button_id.split("-", 1)[1])
-            habits_mod.delete_habit(habit_id)
-            self.refresh_list()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "new-habit":
+            name = event.value.strip()
+            if name:
+                habits_mod.add_habit(name)
+                event.input.value = ""
+                self.refresh_list()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if isinstance(event.item, HabitItem):
+            self.app.push_screen(HabitDetailScreen(event.item.habit))
 
 
 # %%
@@ -152,7 +197,7 @@ class HabitsScreen(Screen):
 class HabitDetailScreen(Screen):
     BINDINGS = [
         ("escape", "back", "Back"),
-        ("t", "toggle_selected", "Toggle selected day"),
+        ("t", "toggle_selected", "Toggle selected"),
         ("T", "toggle_today", "Toggle today"),
     ]
 
@@ -164,12 +209,13 @@ class HabitDetailScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        yield Static(f"Habit: {self.habit['name']}", id="title")
+        yield Static(self.habit["name"], id="title")
+        yield Static("Click a day in the heatmap to select it.", id="subtitle")
         yield Static("", id="streak")
-        yield Static("", id="month-row", classes="row")
-        with Vertical(id="heatmap-wrap", classes="panel"):
+        yield Static("", id="month-row")
+        with VerticalScroll(id="heatmap-wrap", classes="panel"):
             yield Horizontal(id="heatmap-grid")
-        yield Static("", id="selected-info", classes="row")
+        yield Static("", id="selected-info")
         with Horizontal(classes="row"):
             yield Button("Toggle selected (t)", id="toggle-selected", variant="primary")
             yield Button("Toggle today (T)", id="toggle-today")
@@ -178,9 +224,6 @@ class HabitDetailScreen(Screen):
 
     def on_mount(self) -> None:
         self.refresh_view()
-
-    # %%
-    # Rendering #
 
     def refresh_view(self) -> None:
         today = date.today()
@@ -197,13 +240,11 @@ class HabitDetailScreen(Screen):
         grid.remove_children()
         self._cell_index.clear()
 
-        # Day-of-week labels column.
         dow_col = Vertical(classes="dow-col")
         grid.mount(dow_col)
         for label in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]:
             dow_col.mount(Static(label, classes="dow-label"))
 
-        # One column per week.
         for w in range(HEATMAP_WEEKS):
             col = Vertical(classes="week-col")
             grid.mount(col)
@@ -219,9 +260,8 @@ class HabitDetailScreen(Screen):
                 col.mount(cell)
                 self._cell_index[day] = cell
 
-        # Month labels lined up over the columns. Each label is 3 chars wide
-        # (matching DayCell width), so spacing matches the grid.
-        labels: list[str] = ["   "]  # leading spacer over the dow column
+        # Month label row, aligned to columns (each col = 3 chars).
+        labels: list[str] = ["    "]  # 4-char spacer over the dow column
         last_month = ""
         for w in range(HEATMAP_WEEKS):
             week_start = start + timedelta(weeks=w)

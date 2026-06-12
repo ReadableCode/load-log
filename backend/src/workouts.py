@@ -1,7 +1,7 @@
 # %%
 # Imports #
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -47,95 +47,43 @@ def get_or_create_exercise(name: str) -> dict:
 
 
 # %%
-# Sessions #
-
-
-def create_session(session_date: date | None = None, notes: str = "") -> dict:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        if session_date is None:
-            cur.execute(
-                "INSERT INTO workout_sessions (notes) VALUES (%s) RETURNING id, session_date, notes;",
-                (notes,),
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO workout_sessions (session_date, notes)
-                VALUES (%s, %s) RETURNING id, session_date, notes;
-                """,
-                (session_date, notes),
-            )
-        row = cur.fetchone()
-        conn.commit()
-        return {"id": row[0], "session_date": row[1], "notes": row[2] or ""}
-    finally:
-        cur.close()
-        release_conn(conn)
-
-
-def update_session_notes(session_id: int, notes: str) -> None:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "UPDATE workout_sessions SET notes = %s WHERE id = %s;",
-            (notes, session_id),
-        )
-        conn.commit()
-    finally:
-        cur.close()
-        release_conn(conn)
-
-
-def get_recent_sessions(limit: int = 10) -> list[dict]:
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            """
-            SELECT id, session_date, notes FROM workout_sessions
-            ORDER BY session_date DESC, id DESC LIMIT %s;
-            """,
-            (limit,),
-        )
-        return [
-            {"id": r[0], "session_date": r[1], "notes": r[2] or ""}
-            for r in cur.fetchall()
-        ]
-    finally:
-        cur.close()
-        release_conn(conn)
-
-
-# %%
 # Sets #
 
 
 def add_set(
-    session_id: int,
+    workout_date: date,
     exercise_id: int,
-    set_number: int,
     reps: int,
     weight_lbs: float,
 ) -> dict:
+    """Append one set. Auto-assigns set_number as next within (date, exercise).
+    Commits immediately so an interrupted session never loses logged sets.
+    """
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO workout_sets (session_id, exercise_id, set_number, reps, weight_lbs)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, session_id, exercise_id, set_number, reps, weight_lbs;
+            SELECT COALESCE(MAX(set_number), 0) FROM workout_sets
+            WHERE workout_date = %s AND exercise_id = %s;
             """,
-            (session_id, exercise_id, set_number, reps, weight_lbs),
+            (workout_date, exercise_id),
+        )
+        next_num = (cur.fetchone()[0] or 0) + 1
+        cur.execute(
+            """
+            INSERT INTO workout_sets
+                (workout_date, exercise_id, set_number, reps, weight_lbs)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, workout_date, exercise_id, set_number, reps, weight_lbs;
+            """,
+            (workout_date, exercise_id, next_num, reps, weight_lbs),
         )
         row = cur.fetchone()
         conn.commit()
         return {
             "id": row[0],
-            "session_id": row[1],
+            "workout_date": row[1],
             "exercise_id": row[2],
             "set_number": row[3],
             "reps": row[4],
@@ -146,27 +94,39 @@ def add_set(
         release_conn(conn)
 
 
-def get_session_sets(session_id: int) -> list[dict]:
+def delete_set(set_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM workout_sets WHERE id = %s;", (set_id,))
+        conn.commit()
+    finally:
+        cur.close()
+        release_conn(conn)
+
+
+def get_sets_for_date(workout_date: date) -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            SELECT e.name, ws.exercise_id, ws.set_number, ws.reps, ws.weight_lbs
+            SELECT ws.id, e.name, ws.exercise_id, ws.set_number, ws.reps, ws.weight_lbs
             FROM workout_sets ws
             JOIN exercises e ON e.id = ws.exercise_id
-            WHERE ws.session_id = %s
+            WHERE ws.workout_date = %s
             ORDER BY ws.exercise_id ASC, ws.set_number ASC;
             """,
-            (session_id,),
+            (workout_date,),
         )
         return [
             {
-                "exercise_name": r[0],
-                "exercise_id": r[1],
-                "set_number": r[2],
-                "reps": r[3],
-                "weight_lbs": r[4],
+                "id": r[0],
+                "exercise_name": r[1],
+                "exercise_id": r[2],
+                "set_number": r[3],
+                "reps": r[4],
+                "weight_lbs": r[5],
             }
             for r in cur.fetchall()
         ]
@@ -175,52 +135,48 @@ def get_session_sets(session_id: int) -> list[dict]:
         release_conn(conn)
 
 
-def get_last_session_for_exercise(
-    exercise_id: int, before_session_id: int | None = None
+def get_last_workout_for_exercise(
+    exercise_id: int, before_date: date | None = None
 ) -> list[dict]:
+    """Sets from the most recent prior date that included this exercise."""
     conn = get_conn()
     cur = conn.cursor()
     try:
-        if before_session_id is None:
+        if before_date is None:
             cur.execute(
                 """
-                SELECT session_id FROM workout_sets
-                WHERE exercise_id = %s
-                ORDER BY session_id DESC LIMIT 1;
+                SELECT MAX(workout_date) FROM workout_sets WHERE exercise_id = %s;
                 """,
                 (exercise_id,),
             )
         else:
             cur.execute(
                 """
-                SELECT session_id FROM workout_sets
-                WHERE exercise_id = %s AND session_id < %s
-                ORDER BY session_id DESC LIMIT 1;
+                SELECT MAX(workout_date) FROM workout_sets
+                WHERE exercise_id = %s AND workout_date < %s;
                 """,
-                (exercise_id, before_session_id),
+                (exercise_id, before_date),
             )
         row = cur.fetchone()
-        if not row:
+        last_date = row[0] if row else None
+        if last_date is None:
             return []
-        last_session_id = row[0]
 
         cur.execute(
             """
-            SELECT ws.set_number, ws.reps, ws.weight_lbs, s.session_date
-            FROM workout_sets ws
-            JOIN workout_sessions s ON s.id = ws.session_id
-            WHERE ws.session_id = %s AND ws.exercise_id = %s
-            ORDER BY ws.set_number ASC;
+            SELECT set_number, reps, weight_lbs, workout_date
+            FROM workout_sets
+            WHERE workout_date = %s AND exercise_id = %s
+            ORDER BY set_number ASC;
             """,
-            (last_session_id, exercise_id),
+            (last_date, exercise_id),
         )
         return [
             {
                 "set_number": r[0],
                 "reps": r[1],
                 "weight_lbs": r[2],
-                "session_date": r[3],
-                "session_id": last_session_id,
+                "workout_date": r[3],
             }
             for r in cur.fetchall()
         ]
@@ -229,25 +185,69 @@ def get_last_session_for_exercise(
         release_conn(conn)
 
 
-def get_exercise_history(exercise_id: int, limit: int = 20) -> pd.DataFrame:
+def get_exercise_history(exercise_id: int, limit_days: int = 365) -> pd.DataFrame:
+    cutoff = date.today() - timedelta(days=limit_days)
     conn = get_conn()
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            SELECT s.session_date, ws.set_number, ws.reps, ws.weight_lbs
-            FROM workout_sets ws
-            JOIN workout_sessions s ON s.id = ws.session_id
-            WHERE ws.exercise_id = %s
-            ORDER BY s.session_date ASC, ws.set_number ASC
-            LIMIT %s;
+            SELECT workout_date, set_number, reps, weight_lbs
+            FROM workout_sets
+            WHERE exercise_id = %s AND workout_date >= %s
+            ORDER BY workout_date ASC, set_number ASC;
             """,
-            (exercise_id, limit * 10),
+            (exercise_id, cutoff),
         )
         rows = cur.fetchall()
         return pd.DataFrame(
-            rows, columns=["session_date", "set_number", "reps", "weight_lbs"]
+            rows, columns=["workout_date", "set_number", "reps", "weight_lbs"]
         )
+    finally:
+        cur.close()
+        release_conn(conn)
+
+
+# %%
+# Volume #
+
+
+def get_volume_by_date(days: int = 365) -> dict[date, float]:
+    """{date: sum(reps * weight_lbs)} across all sets in the window."""
+    cutoff = date.today() - timedelta(days=days)
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT workout_date, COALESCE(SUM(reps * weight_lbs), 0)
+            FROM workout_sets
+            WHERE workout_date >= %s
+            GROUP BY workout_date;
+            """,
+            (cutoff,),
+        )
+        return {r[0]: float(r[1]) for r in cur.fetchall()}
+    finally:
+        cur.close()
+        release_conn(conn)
+
+
+def get_workout_dates(days: int = 365) -> list[date]:
+    """Distinct dates with logged sets, ascending."""
+    cutoff = date.today() - timedelta(days=days)
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT workout_date FROM workout_sets
+            WHERE workout_date >= %s
+            ORDER BY workout_date ASC;
+            """,
+            (cutoff,),
+        )
+        return [r[0] for r in cur.fetchall()]
     finally:
         cur.close()
         release_conn(conn)
@@ -257,40 +257,27 @@ def get_exercise_history(exercise_id: int, limit: int = 20) -> pd.DataFrame:
 # Progressive Overload #
 
 
-def suggest_next_weight(exercise_id: int, current_session_id: int) -> float | None:
-    """Suggest weight for next session based on current vs previous performance.
-
-    Returns None if no previous history exists.
-    All current reps >= previous reps: bump max weight by 5 lbs.
-    Any current rep < previous rep: keep same weight as previous.
+def suggest_next_weight(exercise_id: int, current_date: date) -> float | None:
+    """Compare current_date's sets to the prior workout's sets for this exercise.
+    All reps met-or-beat → bump max weight by 5 lbs.
+    Any rep regression  → hold previous max weight.
+    No previous history → None.
     """
-    current = get_last_session_for_exercise(
-        exercise_id, before_session_id=current_session_id + 1
-    )
-    # Filter to actually this session
-    current = [s for s in current if s["session_id"] == current_session_id]
-    previous = get_last_session_for_exercise(
-        exercise_id, before_session_id=current_session_id
-    )
-
+    previous = get_last_workout_for_exercise(exercise_id, before_date=current_date)
     if not previous:
         return None
 
     prev_max_weight = max(s["weight_lbs"] for s in previous)
 
+    current = [
+        s for s in get_sets_for_date(current_date) if s["exercise_id"] == exercise_id
+    ]
     if not current:
         return prev_max_weight
 
     prev_by_set = {s["set_number"]: s for s in previous}
-    hit_all_targets = True
     for s in current:
         prev = prev_by_set.get(s["set_number"])
-        if prev is None:
-            continue
-        if s["reps"] < prev["reps"]:
-            hit_all_targets = False
-            break
-
-    if hit_all_targets:
-        return round(prev_max_weight + 5.0, 2)
-    return prev_max_weight
+        if prev is not None and s["reps"] < prev["reps"]:
+            return prev_max_weight
+    return round(prev_max_weight + 5.0, 2)

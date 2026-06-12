@@ -1,7 +1,7 @@
 # %%
 # Imports #
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -17,9 +17,7 @@ def _bootstrap_db():
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute(
-            "TRUNCATE workout_sets, workout_sessions, exercises RESTART IDENTITY CASCADE;"
-        )
+        cur.execute("TRUNCATE workout_sets, exercises RESTART IDENTITY CASCADE;")
         conn.commit()
     finally:
         cur.close()
@@ -39,101 +37,136 @@ def test_get_or_create_exercise_is_case_insensitive():
     assert len(workouts.get_all_exercises()) == 1
 
 
-def test_create_session_default_date_is_today():
-    import workouts
-
-    s = workouts.create_session()
-    assert s["session_date"] == date.today()
-    assert s["notes"] == ""
-
-
-def test_add_and_get_session_sets():
+def test_add_set_auto_increments_set_number():
     import workouts
 
     ex = workouts.get_or_create_exercise("squat")
-    s = workouts.create_session()
-    workouts.add_set(s["id"], ex["id"], 1, 8, 135.0)
-    workouts.add_set(s["id"], ex["id"], 2, 8, 135.0)
+    today = date.today()
+    s1 = workouts.add_set(today, ex["id"], 8, 135.0)
+    s2 = workouts.add_set(today, ex["id"], 8, 135.0)
+    s3 = workouts.add_set(today, ex["id"], 7, 135.0)
 
-    sets = workouts.get_session_sets(s["id"])
-    assert len(sets) == 2
-    assert sets[0]["exercise_name"] == "squat"
-    assert sets[0]["reps"] == 8
-    assert sets[1]["weight_lbs"] == 135.0
+    assert s1["set_number"] == 1
+    assert s2["set_number"] == 2
+    assert s3["set_number"] == 3
 
 
-def test_last_session_for_exercise_excludes_self():
+def test_add_set_per_exercise_numbering_isolated():
     import workouts
 
-    ex = workouts.get_or_create_exercise("deadlift")
-    s1 = workouts.create_session(session_date=date(2026, 6, 1))
-    workouts.add_set(s1["id"], ex["id"], 1, 5, 225.0)
-    s2 = workouts.create_session(session_date=date(2026, 6, 8))
-    workouts.add_set(s2["id"], ex["id"], 1, 5, 235.0)
+    bench = workouts.get_or_create_exercise("bench")
+    row = workouts.get_or_create_exercise("row")
+    d = date.today()
 
-    last = workouts.get_last_session_for_exercise(ex["id"], before_session_id=s2["id"])
-    assert len(last) == 1
-    assert last[0]["weight_lbs"] == 225.0
+    workouts.add_set(d, bench["id"], 8, 135.0)
+    workouts.add_set(d, row["id"], 10, 100.0)
+    s = workouts.add_set(d, bench["id"], 8, 135.0)
+    assert s["set_number"] == 2  # bench set numbering is independent of row
 
 
-def test_suggest_next_weight_bumps_when_hit_targets():
+def test_get_sets_for_date():
     import workouts
 
     ex = workouts.get_or_create_exercise("ohp")
-    s1 = workouts.create_session(session_date=date(2026, 6, 1))
-    workouts.add_set(s1["id"], ex["id"], 1, 8, 100.0)
-    workouts.add_set(s1["id"], ex["id"], 2, 8, 100.0)
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    workouts.add_set(today, ex["id"], 8, 100.0)
+    workouts.add_set(yesterday, ex["id"], 8, 95.0)
 
-    s2 = workouts.create_session(session_date=date(2026, 6, 8))
-    workouts.add_set(s2["id"], ex["id"], 1, 8, 100.0)
-    workouts.add_set(s2["id"], ex["id"], 2, 8, 100.0)
+    sets = workouts.get_sets_for_date(today)
+    assert len(sets) == 1
+    assert sets[0]["weight_lbs"] == 100.0
 
-    assert workouts.suggest_next_weight(ex["id"], s2["id"]) == 105.0
+
+def test_last_workout_excludes_current_date():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("deadlift")
+    workouts.add_set(date(2026, 6, 1), ex["id"], 5, 225.0)
+    workouts.add_set(date(2026, 6, 8), ex["id"], 5, 235.0)
+
+    last = workouts.get_last_workout_for_exercise(ex["id"], before_date=date(2026, 6, 8))
+    assert len(last) == 1
+    assert last[0]["weight_lbs"] == 225.0
+    assert last[0]["workout_date"] == date(2026, 6, 1)
+
+
+def test_volume_by_date():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("curl")
+    today = date.today()
+    workouts.add_set(today, ex["id"], 10, 25.0)
+    workouts.add_set(today, ex["id"], 10, 25.0)
+
+    volumes = workouts.get_volume_by_date(days=7)
+    assert volumes[today] == 10 * 25.0 + 10 * 25.0
+
+
+def test_workout_dates_distinct_sorted():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("plank")
+    workouts.add_set(date(2026, 6, 1), ex["id"], 1, 0.0)
+    workouts.add_set(date(2026, 6, 1), ex["id"], 1, 0.0)
+    workouts.add_set(date(2026, 6, 5), ex["id"], 1, 0.0)
+
+    dates = workouts.get_workout_dates(days=30)
+    assert dates == [date(2026, 6, 1), date(2026, 6, 5)]
+
+
+def test_suggest_next_weight_bumps_on_match():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("ohp")
+    d1 = date(2026, 6, 1)
+    d2 = date(2026, 6, 8)
+    workouts.add_set(d1, ex["id"], 8, 100.0)
+    workouts.add_set(d1, ex["id"], 8, 100.0)
+    workouts.add_set(d2, ex["id"], 8, 100.0)
+    workouts.add_set(d2, ex["id"], 8, 100.0)
+
+    assert workouts.suggest_next_weight(ex["id"], d2) == 105.0
 
 
 def test_suggest_next_weight_holds_when_missed():
     import workouts
 
     ex = workouts.get_or_create_exercise("row")
-    s1 = workouts.create_session(session_date=date(2026, 6, 1))
-    workouts.add_set(s1["id"], ex["id"], 1, 8, 95.0)
-    workouts.add_set(s1["id"], ex["id"], 2, 8, 95.0)
+    d1 = date(2026, 6, 1)
+    d2 = date(2026, 6, 8)
+    workouts.add_set(d1, ex["id"], 8, 95.0)
+    workouts.add_set(d1, ex["id"], 8, 95.0)
+    workouts.add_set(d2, ex["id"], 8, 95.0)
+    workouts.add_set(d2, ex["id"], 6, 95.0)
 
-    s2 = workouts.create_session(session_date=date(2026, 6, 8))
-    workouts.add_set(s2["id"], ex["id"], 1, 8, 95.0)
-    workouts.add_set(s2["id"], ex["id"], 2, 6, 95.0)
-
-    assert workouts.suggest_next_weight(ex["id"], s2["id"]) == 95.0
+    assert workouts.suggest_next_weight(ex["id"], d2) == 95.0
 
 
 def test_suggest_next_weight_none_without_history():
     import workouts
 
-    ex = workouts.get_or_create_exercise("curl")
-    s = workouts.create_session()
-    workouts.add_set(s["id"], ex["id"], 1, 10, 25.0)
-
-    assert workouts.suggest_next_weight(ex["id"], s["id"]) is None
+    ex = workouts.get_or_create_exercise("face pull")
+    workouts.add_set(date.today(), ex["id"], 12, 30.0)
+    assert workouts.suggest_next_weight(ex["id"], date.today()) is None
 
 
-def test_update_session_notes():
+def test_delete_set():
     import workouts
 
-    s = workouts.create_session()
-    workouts.update_session_notes(s["id"], "felt strong")
-    sessions = workouts.get_recent_sessions()
-    assert sessions[0]["notes"] == "felt strong"
+    ex = workouts.get_or_create_exercise("dip")
+    s = workouts.add_set(date.today(), ex["id"], 10, 0.0)
+    workouts.delete_set(s["id"])
+    assert workouts.get_sets_for_date(date.today()) == []
 
 
 def test_exercise_history_dataframe():
     import workouts
 
     ex = workouts.get_or_create_exercise("bench")
-    s1 = workouts.create_session(session_date=date(2026, 6, 1))
-    workouts.add_set(s1["id"], ex["id"], 1, 8, 135.0)
-    s2 = workouts.create_session(session_date=date(2026, 6, 8))
-    workouts.add_set(s2["id"], ex["id"], 1, 8, 140.0)
+    workouts.add_set(date(2026, 6, 1), ex["id"], 8, 135.0)
+    workouts.add_set(date(2026, 6, 8), ex["id"], 8, 140.0)
 
-    df = workouts.get_exercise_history(ex["id"])
-    assert list(df.columns) == ["session_date", "set_number", "reps", "weight_lbs"]
+    df = workouts.get_exercise_history(ex["id"], limit_days=365)
+    assert list(df.columns) == ["workout_date", "set_number", "reps", "weight_lbs"]
     assert len(df) == 2

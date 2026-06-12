@@ -47,15 +47,6 @@ class ToggleIn(BaseModel):
     target_date: date
 
 
-class SessionIn(BaseModel):
-    session_date: date | None = None
-    notes: str = ""
-
-
-class NotesIn(BaseModel):
-    notes: str
-
-
 class SetIn(BaseModel):
     exercise_name: str
     reps: int
@@ -102,58 +93,46 @@ def list_exercises():
     return workouts.get_all_exercises()
 
 
-@app.post("/sessions")
-def create_session(payload: SessionIn):
-    return workouts.create_session(
-        session_date=payload.session_date, notes=payload.notes
-    )
+@app.get("/workouts/volume")
+def workout_volume(days: int = 365):
+    return {d.isoformat(): v for d, v in workouts.get_volume_by_date(days=days).items()}
 
 
-@app.get("/sessions")
-def recent_sessions(limit: int = 10):
-    return workouts.get_recent_sessions(limit=limit)
-
-
-@app.get("/sessions/{session_id}")
-def session_detail(session_id: int):
+@app.get("/workouts/{workout_date}")
+def workout_for_date(workout_date: date):
     return {
-        "id": session_id,
-        "sets": workouts.get_session_sets(session_id),
+        "workout_date": workout_date.isoformat(),
+        "sets": workouts.get_sets_for_date(workout_date),
     }
 
 
-@app.patch("/sessions/{session_id}/notes")
-def patch_notes(session_id: int, payload: NotesIn):
-    workouts.update_session_notes(session_id, payload.notes)
-    return {"id": session_id, "notes": payload.notes}
-
-
-@app.post("/sessions/{session_id}/sets")
-def log_set(session_id: int, payload: SetIn):
+@app.post("/workouts/{workout_date}/sets")
+def log_set(workout_date: date, payload: SetIn):
     exercise = workouts.get_or_create_exercise(payload.exercise_name)
-    existing = workouts.get_session_sets(session_id)
-    next_set_num = (
-        1 + max(
-            (s["set_number"] for s in existing if s["exercise_id"] == exercise["id"]),
-            default=0,
-        )
-    )
     return workouts.add_set(
-        session_id, exercise["id"], next_set_num, payload.reps, payload.weight_lbs
+        workout_date, exercise["id"], payload.reps, payload.weight_lbs
     )
+
+
+@app.delete("/sets/{set_id}")
+def remove_set(set_id: int):
+    workouts.delete_set(set_id)
+    return {"deleted": set_id}
 
 
 @app.get("/exercises/{exercise_id}/history")
-def exercise_history(exercise_id: int, limit: int = 20):
-    df = workouts.get_exercise_history(exercise_id, limit=limit)
-    return df.assign(session_date=df["session_date"].astype(str)).to_dict(
+def exercise_history(exercise_id: int, limit_days: int = 365):
+    df = workouts.get_exercise_history(exercise_id, limit_days=limit_days)
+    if df.empty:
+        return []
+    return df.assign(workout_date=df["workout_date"].astype(str)).to_dict(
         orient="records"
     )
 
 
 @app.get("/exercises/{exercise_id}/suggestion")
-def exercise_suggestion(exercise_id: int, session_id: int):
-    suggestion = workouts.suggest_next_weight(exercise_id, session_id)
+def exercise_suggestion(exercise_id: int, workout_date: date):
+    suggestion = workouts.suggest_next_weight(exercise_id, workout_date)
     if suggestion is None:
         raise HTTPException(status_code=404, detail="Insufficient history")
     return {"exercise_id": exercise_id, "suggested_weight_lbs": suggestion}

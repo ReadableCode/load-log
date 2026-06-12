@@ -20,9 +20,25 @@ from tui.workouts import WorkoutsScreen  # noqa: E402
 
 
 class LoadLogApp(App):
+    TITLE = "Load Log"
+
     CSS = """
     Screen { background: $surface; }
-    #title { padding: 1 2; color: $text; text-style: bold; }
+
+    /* Single bold screen heading. No bracketed key hints — the Footer at the
+       bottom is the source of truth for shortcuts and it's clickable. */
+    #title {
+        height: 1;
+        padding: 0 2;
+        color: $accent;
+        text-style: bold;
+    }
+    #subtitle {
+        height: 1;
+        padding: 0 2;
+        color: $text-muted;
+    }
+
     .row { height: 3; padding: 0 1; }
     .panel { padding: 1 2; border: round $primary; }
     Button { margin: 0 1; }
@@ -36,6 +52,9 @@ class LoadLogApp(App):
     .dow-label { width: 4; height: 1; color: $text-muted; }
     .week-col { width: 3; }
     #selected-info { padding: 1 2; color: $accent; text-style: bold; }
+
+    /* Set-logging form */
+    .form-label { width: 16; padding: 1 0; color: $text-muted; }
     """
 
     BINDINGS = [

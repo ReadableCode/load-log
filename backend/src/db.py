@@ -79,6 +79,28 @@ def ensure_tables() -> None:
     conn = get_conn()
     cur = conn.cursor()
     try:
+        # NEVER drop tables here. If the schema has drifted (e.g. an old
+        # `workout_sets.session_id` from before we collapsed sessions into a
+        # date column), refuse to start and tell the caller to migrate
+        # explicitly. Silent DROP TABLE in a bootstrap path is how user data
+        # gets destroyed.
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'workout_sets'
+              AND column_name = 'session_id';
+            """
+        )
+        if cur.fetchone():
+            raise RuntimeError(
+                "Legacy workout_sessions / workout_sets.session_id schema detected. "
+                "Run backend/scripts/migrate_drop_sessions.py to migrate "
+                "(it backs up workout_sets into workout_sets_backup_<timestamp>, "
+                "rewrites the schema, and re-inserts the rows with a synthesized "
+                "workout_date). Aborting startup to avoid data loss."
+            )
+
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS habits (
@@ -99,20 +121,17 @@ def ensure_tables() -> None:
                 name  TEXT NOT NULL UNIQUE
             );
 
-            CREATE TABLE IF NOT EXISTS workout_sessions (
+            CREATE TABLE IF NOT EXISTS workout_sets (
                 id            SERIAL PRIMARY KEY,
-                session_date  DATE NOT NULL DEFAULT CURRENT_DATE,
-                notes         TEXT
+                workout_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+                exercise_id   INTEGER NOT NULL REFERENCES exercises(id),
+                set_number    INTEGER NOT NULL,
+                reps          INTEGER NOT NULL,
+                weight_lbs    REAL NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS workout_sets (
-                id           SERIAL PRIMARY KEY,
-                session_id   INTEGER NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
-                exercise_id  INTEGER NOT NULL REFERENCES exercises(id),
-                set_number   INTEGER NOT NULL,
-                reps         INTEGER NOT NULL,
-                weight_lbs   REAL NOT NULL
-            );
+            CREATE INDEX IF NOT EXISTS workout_sets_date_idx
+                ON workout_sets (workout_date);
             """
         )
         conn.commit()

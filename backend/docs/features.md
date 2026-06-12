@@ -55,19 +55,32 @@ def get_completion_counts(days: int = 7) -> dict[int, int]
 ### TUI (`tui/habits.py` — Textual)
 
 Screen layout:
-```
-┌─ Habits ──────────────────────────────────────┐
-│ [+] New habit: ________________________ [Add] │
-├───────────────────────────────────────────────┤
-│ ✓  10,000 steps          streak: 4d  [Toggle] │
-│ ✗  30 pushups            streak: 0d  [Toggle] │
-│ ✓  60s plank             streak: 12d [Toggle] │
-└───────────────────────────────────────────────┘
+
+```text
+ Load Log
+
+ Habits
+ Daily tracker — pick a habit and view its heatmap.
+
+╭───────────────────────────────────────────────╮
+│ new habit name…                       [ Add ] │
+╰───────────────────────────────────────────────╯
+   ✓   30 pushups                  streak:   4d
+   ✗   10,000 steps                streak:   0d
+   ✓   60s plank                   streak:  12d
+
+ ┃ a Add  enter View  space Toggle today  delete Delete  h Habits  w Workouts  q Quit
 ```
 
-- "Toggle" marks today as complete or removes it
-- Selecting a habit and pressing `d` opens a date picker to mark a different day
-- Pressing `delete` on a selected habit removes it (with confirmation)
+Design rules for the TUI (apply across both screens):
+
+- **One bold title** at the top (the screen name only — no bracketed key hints).
+- **One muted subtitle** under it explaining what to do.
+- **No shortcuts in the title row.** The Footer at the very bottom is the
+  source of truth for keyboard shortcuts AND is clickable, so duplicating
+  the hints up top just adds noise and breaks visually in narrow terminals.
+- Each habit is a single `ListView` row → arrow keys navigate, enter opens
+  the heatmap detail screen, space toggles today, delete removes it.
 
 ---
 
@@ -79,104 +92,121 @@ The user logs a workout session set by set. They pick an exercise name (autocomp
 
 ---
 
-### `workouts.py` — functions to implement
+### `workouts.py` — functions
 
 ```python
 def get_all_exercises() -> list[dict]
-    # Returns [{id, name}, ...] sorted by name
+    # [{id, name}, ...] sorted by name
 
 def get_or_create_exercise(name: str) -> dict
-    # Case-insensitive lookup, INSERT if not found. Returns {id, name}.
+    # Case-insensitive lookup, INSERT if not found.
 
-def create_session(session_date: date = None, notes: str = "") -> dict
-    # INSERT INTO workout_sessions. Returns {id, session_date, notes}.
+def add_set(workout_date: date, exercise_id: int, reps: int, weight_lbs: float) -> dict
+    # Auto-assigns next set_number within (date, exercise).
+    # Commits IMMEDIATELY so an interrupted workout never loses logged sets.
 
-def add_set(session_id: int, exercise_id: int, set_number: int, reps: int, weight_lbs: float) -> dict
-    # INSERT INTO workout_sets. Returns the new row.
+def delete_set(set_id: int) -> None
 
-def get_session_sets(session_id: int) -> list[dict]
-    # Returns [{exercise_name, set_number, reps, weight_lbs}, ...] for a session
+def get_sets_for_date(workout_date: date) -> list[dict]
+    # [{id, exercise_name, exercise_id, set_number, reps, weight_lbs}, ...]
 
-def get_last_session_for_exercise(exercise_id: int, before_session_id: int = None) -> list[dict]
-    # Returns the sets from the most recent session that included this exercise
-    # (excluding before_session_id if provided, so current session doesn't reference itself)
-    # Returns [{set_number, reps, weight_lbs}, ...]
+def get_last_workout_for_exercise(exercise_id: int, before_date: date | None = None) -> list[dict]
+    # Sets from the most recent prior date that included this exercise.
 
-def get_exercise_history(exercise_id: int, limit: int = 20) -> pd.DataFrame
-    # Returns a DataFrame: [session_date, set_number, reps, weight_lbs]
-    # Ordered by session_date ASC, set_number ASC
+def get_exercise_history(exercise_id: int, limit_days: int = 365) -> pd.DataFrame
+    # [workout_date, set_number, reps, weight_lbs]
 
-def suggest_next_weight(exercise_id: int, current_session_id: int) -> float | None
-    # Compares current session vs previous session for this exercise
-    # Returns suggested weight for next time, or None if insufficient history
+def get_volume_by_date(days: int = 365) -> dict[date, float]
+    # {date: sum(reps * weight_lbs)} — drives the volume heatmap.
 
-def update_session_notes(session_id: int, notes: str) -> None
-    # UPDATE workout_sessions SET notes = %s WHERE id = %s
-```
+def get_workout_dates(days: int = 365) -> list[date]
+    # Distinct dates that have any logged sets.
 
-**`suggest_next_weight` logic:**
-```python
-# Get previous session sets and current session sets for this exercise
-# If current reps >= previous reps for every set: return max(weight_lbs) + 5
-# Else if current reps < previous reps on any set: return same weight as previous
-# If insufficient history (first time doing exercise): return None
+def suggest_next_weight(exercise_id: int, current_date: date) -> float | None
+    # See logic in schema.md.
 ```
 
 ---
 
 ### Web UI (`web/app.py` — Streamlit)
 
-**Sidebar:** "New Session" button. List of recent sessions (last 10) as links.
+**Volume heatmap** at the top (GitHub-style, 52 × 7). Color shade is graded by
+total daily volume (`reps × weight` summed across all sets that day) using
+quartile thresholds against the user's own range. Click a cell → that date
+becomes the active workout date.
 
-**Active Session view:**
+**Day editor** below the heatmap, for the picked date:
+
 ```
-Session: 2026-06-11    [Notes: ___________________]
+Selected: Thu Jun 11, 2026 — volume 4,320 lbs
 
-Exercise: [___________ ▼]  ← autocomplete from exercise history
+New exercise: [___________]    Existing: [bench press ▼]
 
-Last time (2026-06-04):
-  Set 1: 8 reps @ 135 lbs
-  Set 2: 8 reps @ 135 lbs
-  Set 3: 7 reps @ 135 lbs
+Last time (2026-06-04): 8×135, 8×135, 7×135
 
-Log a set:
-  Reps: [___]   Weight (lbs): [_____]   [Add Set]
+[ Reps  8  ]  [ Weight  140  ]  [ Log set ]
 
-Logged this session:
-  Set 1: 8 reps @ 140 lbs
-  Set 2: 8 reps @ 140 lbs
+Sets logged on this day:
+  bench press   set 1   8 reps   140 lbs
+  bench press   set 2   8 reps   140 lbs
 
-[+ Add another exercise]   [Finish Session]
+Progressive-overload suggestions:
+  • bench press: next session try **145 lbs**
 ```
 
-After "Finish Session": show progressive overload recommendation for each exercise logged.
+The Log set form auto-fills reps/weight from **today's last logged set** for
+the picked exercise (so set 2/3/… reuse the values from set 1), falling back
+to the previous workout for the first set of the day. Submits on Enter or
+the button. Each submit commits a single INSERT and reruns the page so the
+next set is one Enter away.
 
 **History view (per exercise):**
-- Line chart: max weight per session over time
-- Table: all sessions with sets
+
+- Line chart: max weight per `workout_date` over time
+- Table: all logged sets with dates
 
 ---
 
 ### TUI (`tui/workouts.py` — Textual)
 
-Screen layout — active session:
-```
-┌─ Workout Session: 2026-06-11 ─────────────────┐
-│ Exercise: bench press                          │
-│ Last session (2026-06-04): 8×135, 8×135, 7×135│
-├───────────────────────────────────────────────┤
-│ Set 1: 8 reps @ 140 lbs   ✓                   │
-│ Set 2: 8 reps @ 140 lbs   ✓                   │
-│ > Set 3: reps [__] @ weight [___] [Log]        │
-├───────────────────────────────────────────────┤
-│ [N] Next exercise  [D] Done  [Notes: _______]  │
-└───────────────────────────────────────────────┘
+Same model as the Streamlit page: a volume heatmap drives date selection.
+
+```text
+ Load Log
+
+ Workouts
+ Click a day on the heatmap to pick it · enter on either field logs the set.
+
+      Jun                  Jul
+Mon  ■ ■ ■ ◉ ■ ■  ■ ■ ■ ■ ■ ■  ...
+Tue  ■ ■ ■ ■ ■ ■  ■ ■ ■ ■ ■ ■
+Wed  ■ ■ ■ ■ ■ ■  ■ ■ ■ ■ ■ ■
+... (Mon-Sun × 18 weeks)
+
+Selected: Thu Jun 11, 2026 • volume: 4,320 lbs
+
+Exercise (enter or pick to start logging):
+  [ bench press        ] [ Select ]
+  bench press — last (2026-06-04): 8×135, 8×135, 7×135
+
+Log a set — enter in either field submits:
+  Reps:         [ 8   ]
+  Weight (lbs): [ 140 ]
+  [ Log set ]
+
+Sets logged on selected date:
+  bench press  set 1: 8 reps @ 140 lbs
+  bench press  set 2: 8 reps @ 140 lbs
 ```
 
-- Tab cycles between reps/weight fields
-- Enter logs the set and moves to the next set row
-- `n` moves to a new exercise (prompts for name with autocomplete)
-- `d` finishes the session and prints progressive overload suggestions
+- Each input lives on its own row so both fields are always visible — no
+  layout fight between two `Input` widgets in a narrow terminal.
+- Click any heatmap cell → that date becomes selected; `t` jumps back to today.
+- In **Reps**: Enter moves focus to **Weight** (if empty) or submits.
+- In **Weight**: Enter submits the set.
+- Each submit commits one INSERT, refreshes the heatmap volume tally, and
+  **pre-fills** the next set's reps/weight from the set you just logged. So
+  three sets of `8 × 140` is: type once, Enter, Enter, Enter.
 
 ---
 
@@ -185,7 +215,8 @@ Screen layout — active session:
 All routes are thin wrappers — they call `habits.py` / `workouts.py` and return the result.
 
 ### Habits
-```
+
+```text
 GET    /habits                     → list all habits
 POST   /habits                     → add habit {name}
 DELETE /habits/{id}                → delete habit
@@ -194,13 +225,16 @@ POST   /habits/{id}/toggle         → toggle {date}
 ```
 
 ### Workouts
-```
-GET    /exercises                  → list exercises
-POST   /sessions                   → create session {date, notes}
-GET    /sessions/{id}              → session detail with sets
-POST   /sessions/{id}/sets         → add set {exercise_name, reps, weight_lbs}
-GET    /exercises/{id}/history     → set history for exercise
-GET    /exercises/{id}/suggestion  → progressive overload suggestion
+
+```text
+GET    /exercises                          → list exercises
+GET    /workouts/volume?days=365           → {date: total_volume} for heatmap
+GET    /workouts/{workout_date}            → sets logged on a date
+POST   /workouts/{workout_date}/sets       → add set {exercise_name, reps, weight_lbs}
+DELETE /sets/{set_id}                      → remove a logged set
+GET    /exercises/{id}/history             → set history for exercise
+GET    /exercises/{id}/suggestion?workout_date=YYYY-MM-DD
+                                           → progressive overload suggestion
 ```
 
 ---

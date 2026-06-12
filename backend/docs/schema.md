@@ -54,39 +54,50 @@ CREATE TABLE IF NOT EXISTS exercises (
 );
 ```
 
-### `workout_sessions`
-
-One session = one visit to the gym (or one workout block). A session can contain many exercises.
-
-```sql
-CREATE TABLE IF NOT EXISTS workout_sessions (
-    id            SERIAL PRIMARY KEY,
-    session_date  DATE NOT NULL DEFAULT CURRENT_DATE,
-    notes         TEXT
-);
-```
-
 ### `workout_sets`
 
-Each row is one set within a session for a specific exercise.
-`set_number` is 1-indexed and represents the order within that exercise within that session.
+There is **no separate workout/session table** — a "workout" is just the set of
+`workout_sets` rows that share a `workout_date`. This keeps the model simple
+(one date picker, no session naming, no notes) and makes per-day volume queries
+trivial. `set_number` is 1-indexed within (`workout_date`, `exercise_id`).
 
 ```sql
 CREATE TABLE IF NOT EXISTS workout_sets (
-    id           SERIAL PRIMARY KEY,
-    session_id   INTEGER NOT NULL REFERENCES workout_sessions(id) ON DELETE CASCADE,
-    exercise_id  INTEGER NOT NULL REFERENCES exercises(id),
-    set_number   INTEGER NOT NULL,
-    reps         INTEGER NOT NULL,
-    weight_lbs   REAL NOT NULL
+    id            SERIAL PRIMARY KEY,
+    workout_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+    exercise_id   INTEGER NOT NULL REFERENCES exercises(id),
+    set_number    INTEGER NOT NULL,
+    reps          INTEGER NOT NULL,
+    weight_lbs    REAL NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS workout_sets_date_idx ON workout_sets (workout_date);
 ```
 
 **Key queries:**
-- All sets for a given session → display current session log
-- Last session containing a given exercise → progressive overload reference
-- All sessions with sets for a given exercise over time → volume/strength trend chart
-- Per-exercise max weight over time → strength progress
+
+- All sets for a given date → display the day's log
+- `SELECT workout_date, SUM(reps * weight_lbs) GROUP BY workout_date` → volume
+  heatmap (GitHub-style, color-graded by total daily volume)
+- Most-recent prior date containing a given exercise → progressive-overload
+  reference for "what to beat"
+- Per-exercise max weight over time → strength trend chart
+
+**Crash safety:** every `INSERT` of a set commits its own transaction, so a
+TUI/web crash mid-workout never loses already-logged sets.
+
+**No destructive bootstrap.** `db.ensure_tables()` only `CREATE TABLE IF NOT
+EXISTS`s. If it detects schema drift (e.g. the legacy `workout_sets.session_id`
+column), it **raises and refuses to start** rather than silently dropping
+tables. Run `backend/scripts/migrate_drop_sessions.py` to migrate explicitly;
+that script backs `workout_sets` and `workout_sessions` up into timestamped
+backup tables (`workout_sets_backup_YYYYMMDD_HHMMSS`) **before** rewriting
+anything.
+
+**Test isolation.** `tests/conftest.py` forces `POSTGRES_DB=load_log_test`
+(override with `LOAD_LOG_TEST_DB`) before `config.py` reads the env. A
+`pytest` run can never touch the production `load_log` DB. The test DB is
+auto-created on first run, alongside `load_log`, on the same Postgres host.
 
 ---
 
@@ -94,12 +105,11 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 
 Not a DB concept — computed from the data:
 
-1. When a user starts logging an exercise in a new session, query the **most recent previous session** that included that exercise.
-2. Display that session's sets (reps × weight) as the "last time" reference.
-3. After the session is saved, compute a **suggested next target**:
-   - If all sets hit their rep target: `weight + 5 lbs` (upper body) or `weight + 10 lbs` (lower body — determined by a flag or name heuristic)
-   - If any set missed reps: `same weight`
-   - If multiple failures in a row: `weight × 0.90` (deload)
-4. Store nothing extra — the suggestion is always derived from logged history.
-
-The "rep target" per set is the reps logged in the previous session (i.e., try to match or beat it at the same or higher weight).
+1. When the user picks an exercise on a given `workout_date`, query the **most
+   recent prior `workout_date`** that included that exercise.
+2. Display that day's sets (reps × weight) as the "last time" reference.
+3. After sets are logged, derive a **suggested next weight**:
+   - All current reps ≥ previous reps → `prev_max_weight + 5 lbs`
+   - Any current reps < previous reps → hold at `prev_max_weight`
+   - No previous history → `None` (build a baseline)
+4. Nothing extra is stored — the suggestion always recomputes from history.
