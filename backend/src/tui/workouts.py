@@ -112,6 +112,8 @@ class WorkoutsScreen(Screen):
         self.current_exercise_id: int | None = None
         self.current_exercise_name: str = ""
         self._cell_index: dict[date, DayCell] = {}
+        # When editing an existing set, this holds the row id; None = adding.
+        self._editing_set_id: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -132,16 +134,25 @@ class WorkoutsScreen(Screen):
                 yield Button("Select", id="select-exercise", variant="primary")
             yield Static("", id="last-workout")
 
-        with Vertical(classes="panel"):
-            yield Static("Log a set — enter in either field submits:")
+        with Vertical(classes="panel", id="form-panel"):
+            yield Static("Log a set — enter in either field submits:", id="form-title")
             with Horizontal(classes="row"):
                 yield Static("Reps:", classes="form-label")
-                yield Input(placeholder="e.g. 8", id="reps-input")
+                yield Input(
+                    placeholder="e.g. 8",
+                    id="reps-input",
+                    restrict=r"[0-9]*",
+                )
             with Horizontal(classes="row"):
                 yield Static("Weight (lbs):", classes="form-label")
-                yield Input(placeholder="e.g. 135", id="weight-input")
+                yield Input(
+                    placeholder="e.g. 135 or 47.5",
+                    id="weight-input",
+                    restrict=r"[0-9]*\.?[0-9]*",
+                )
             with Horizontal(classes="row"):
                 yield Button("Log set", id="log-set", variant="success")
+                yield Button("Cancel edit", id="cancel-edit", variant="warning")
 
         yield Static("Sets logged on selected date:", classes="row")
         yield VerticalScroll(id="set-list", classes="panel")
@@ -217,14 +228,37 @@ class WorkoutsScreen(Screen):
         sets = workouts_mod.get_sets_for_date(self.selected_date)
         if not sets:
             container.mount(Static("  (no sets logged)"))
+            self._update_form_mode_label()
             return
         for s in sets:
-            container.mount(
+            row = Horizontal(classes="set-row")
+            container.mount(row)
+            row.mount(
                 Static(
-                    f"  {s['exercise_name']:<22} set {s['set_number']}: "
-                    f"{s['reps']} reps @ {s['weight_lbs']:g} lbs"
+                    f" {s['exercise_name']:<20} #{s['set_number']:>2}  "
+                    f"{s['reps']:>3} reps @ {s['weight_lbs']:>6g} lbs",
+                    classes="set-text",
                 )
             )
+            row.mount(Button("Edit", id=f"edit-set-{s['id']}", variant="primary"))
+            row.mount(Button("Delete", id=f"del-set-{s['id']}", variant="error"))
+        self._update_form_mode_label()
+
+    def _update_form_mode_label(self) -> None:
+        title = self.query_one("#form-title", Static)
+        cancel = self.query_one("#cancel-edit", Button)
+        log_btn = self.query_one("#log-set", Button)
+        if self._editing_set_id is None:
+            title.update("Log a set — enter in either field submits:")
+            log_btn.label = "Log set"
+            cancel.display = False
+        else:
+            title.update(
+                f"Editing set #{self._editing_set_id} — change reps/weight, "
+                "enter saves:"
+            )
+            log_btn.label = "Save changes"
+            cancel.display = True
 
     def _refresh_last_workout(self) -> None:
         target = self.query_one("#last-workout", Static)
@@ -263,6 +297,17 @@ class WorkoutsScreen(Screen):
             self._select_exercise_from_input()
         elif button_id == "log-set":
             self._submit_set()
+        elif button_id == "cancel-edit":
+            self._cancel_edit()
+        elif button_id.startswith("edit-set-"):
+            self._start_editing(int(button_id.removeprefix("edit-set-")))
+        elif button_id.startswith("del-set-"):
+            workouts_mod.delete_set(int(button_id.removeprefix("del-set-")))
+            # If we were editing this row, drop back to add mode.
+            if self._editing_set_id == int(button_id.removeprefix("del-set-")):
+                self._cancel_edit()
+            self._refresh_set_list()
+            self._refresh_selection()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "exercise-name":
@@ -315,8 +360,6 @@ class WorkoutsScreen(Screen):
             self.query_one("#weight-input", Input).value = f"{source['weight_lbs']:g}"
 
     def _submit_set(self) -> None:
-        if self.current_exercise_id is None:
-            return
         reps_input = self.query_one("#reps-input", Input)
         weight_input = self.query_one("#weight-input", Input)
         try:
@@ -325,6 +368,21 @@ class WorkoutsScreen(Screen):
         except ValueError:
             return
         if reps <= 0:
+            return
+
+        if self._editing_set_id is not None:
+            # Save edit, then drop back to add mode.
+            workouts_mod.update_set(self._editing_set_id, reps, weight)
+            self._editing_set_id = None
+            reps_input.value = ""
+            weight_input.value = ""
+            self._refresh_set_list()
+            self._refresh_selection()
+            self._prefill_inputs()
+            reps_input.focus()
+            return
+
+        if self.current_exercise_id is None:
             return
 
         # Commit immediately — survives a crash mid-workout.
@@ -339,3 +397,29 @@ class WorkoutsScreen(Screen):
         self._refresh_selection()  # update volume tally on the heatmap
         self._prefill_inputs()      # set 2/3/... reuses just-logged values
         reps_input.focus()
+
+    def _start_editing(self, set_id: int) -> None:
+        target = next(
+            (s for s in workouts_mod.get_sets_for_date(self.selected_date)
+             if s["id"] == set_id),
+            None,
+        )
+        if target is None:
+            return
+        self._editing_set_id = set_id
+        # Adopt the row's exercise so the "last workout" reference is right.
+        self.current_exercise_id = target["exercise_id"]
+        self.current_exercise_name = target["exercise_name"]
+        self.query_one("#exercise-name", Input).value = target["exercise_name"]
+        self.query_one("#reps-input", Input).value = str(target["reps"])
+        self.query_one("#weight-input", Input).value = f"{target['weight_lbs']:g}"
+        self._refresh_last_workout()
+        self._update_form_mode_label()
+        self.query_one("#reps-input", Input).focus()
+
+    def _cancel_edit(self) -> None:
+        self._editing_set_id = None
+        self.query_one("#reps-input", Input).value = ""
+        self.query_one("#weight-input", Input).value = ""
+        self._update_form_mode_label()
+        self._prefill_inputs()

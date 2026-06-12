@@ -53,6 +53,11 @@ class SetIn(BaseModel):
     weight_lbs: float
 
 
+class SetPatch(BaseModel):
+    reps: int
+    weight_lbs: float
+
+
 # %%
 # Habits #
 
@@ -118,6 +123,14 @@ def log_set(workout_date: date, payload: SetIn):
 def remove_set(set_id: int):
     workouts.delete_set(set_id)
     return {"deleted": set_id}
+
+
+@app.patch("/sets/{set_id}")
+def patch_set(set_id: int, payload: SetPatch):
+    updated = workouts.update_set(set_id, payload.reps, payload.weight_lbs)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Set not found")
+    return updated
 
 
 @app.get("/exercises/{exercise_id}/history")

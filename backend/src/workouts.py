@@ -95,11 +95,67 @@ def add_set(
 
 
 def delete_set(set_id: int) -> None:
+    """Delete a set and renumber the remaining sets for that (date, exercise)
+    so the visible 1..N stays sequential."""
     conn = get_conn()
     cur = conn.cursor()
     try:
+        cur.execute(
+            "SELECT workout_date, exercise_id FROM workout_sets WHERE id = %s;",
+            (set_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return
+        workout_date, exercise_id = row
         cur.execute("DELETE FROM workout_sets WHERE id = %s;", (set_id,))
+        cur.execute(
+            """
+            WITH renumber AS (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY set_number, id) AS new_num
+                FROM workout_sets
+                WHERE workout_date = %s AND exercise_id = %s
+            )
+            UPDATE workout_sets ws
+            SET set_number = r.new_num
+            FROM renumber r
+            WHERE ws.id = r.id;
+            """,
+            (workout_date, exercise_id),
+        )
         conn.commit()
+    finally:
+        cur.close()
+        release_conn(conn)
+
+
+def update_set(set_id: int, reps: int, weight_lbs: float) -> dict | None:
+    """Patch reps and/or weight on an existing set. Returns the updated row,
+    or None if no such set exists."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE workout_sets
+            SET reps = %s, weight_lbs = %s
+            WHERE id = %s
+            RETURNING id, workout_date, exercise_id, set_number, reps, weight_lbs;
+            """,
+            (reps, weight_lbs, set_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "workout_date": row[1],
+            "exercise_id": row[2],
+            "set_number": row[3],
+            "reps": row[4],
+            "weight_lbs": row[5],
+        }
     finally:
         cur.close()
         release_conn(conn)

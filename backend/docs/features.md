@@ -107,6 +107,12 @@ def add_set(workout_date: date, exercise_id: int, reps: int, weight_lbs: float) 
     # Commits IMMEDIATELY so an interrupted workout never loses logged sets.
 
 def delete_set(set_id: int) -> None
+    # Also renumbers the remaining sets for that (date, exercise) so the
+    # visible set_number stays 1..N — no gaps after a middle delete.
+
+def update_set(set_id: int, reps: int, weight_lbs: float) -> dict | None
+    # Patch reps/weight on an existing set. Returns the updated row or
+    # None if the set doesn't exist.
 
 def get_sets_for_date(workout_date: date) -> list[dict]
     # [{id, exercise_name, exercise_id, set_number, reps, weight_lbs}, ...]
@@ -161,6 +167,13 @@ to the previous workout for the first set of the day. Submits on Enter or
 the button. Each submit commits a single INSERT and reruns the page so the
 next set is one Enter away.
 
+**Editing / deleting logged sets** — the day's sets are shown in an
+`st.data_editor` (not a static dataframe). Tab through cells to edit reps
+or weight inline (Enter or click-out commits the change to the DB); click
+the trash icon on a row to delete it. `exercise_name` and `set_number` are
+read-only — they're identity columns. Deleting a middle set renumbers the
+rest so the visible numbering stays 1..N.
+
 **History view (per exercise):**
 
 - Line chart: max weight per `workout_date` over time
@@ -209,6 +222,17 @@ Sets logged on selected date:
   **pre-fills** the next set's reps/weight from the set you just logged. So
   three sets of `8 × 140` is: type once, Enter, Enter, Enter.
 
+**Editing / deleting logged sets** — every row in "Sets logged on selected
+date" has explicit `Edit` and `Delete` buttons:
+
+- `Delete` removes that row immediately and renumbers the remaining sets
+  for that (date, exercise) so the visible 1..N stays sequential.
+- `Edit` pre-fills the form with that row's reps/weight, swaps the form
+  title to "Editing set #N", changes the green button to "Save changes",
+  and shows a yellow "Cancel edit" button. Enter on either field saves the
+  edit; Cancel discards it. After save (or cancel) the form returns to the
+  normal add-mode prefill.
+
 ---
 
 ## API Endpoints (FastAPI `api.py`)
@@ -232,7 +256,8 @@ GET    /exercises                          → list exercises
 GET    /workouts/volume?days=365           → {date: total_volume} for heatmap
 GET    /workouts/{workout_date}            → sets logged on a date
 POST   /workouts/{workout_date}/sets       → add set {exercise_name, reps, weight_lbs}
-DELETE /sets/{set_id}                      → remove a logged set
+PATCH  /sets/{set_id}                      → update reps/weight on an existing set
+DELETE /sets/{set_id}                      → remove a logged set (renumbers the rest)
 GET    /exercises/{id}/history             → set history for exercise
 GET    /exercises/{id}/suggestion?workout_date=YYYY-MM-DD
                                            → progressive overload suggestion

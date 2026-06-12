@@ -160,6 +160,41 @@ def test_delete_set():
     assert workouts.get_sets_for_date(date.today()) == []
 
 
+def test_delete_middle_set_renumbers_remaining():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("bench")
+    d = date.today()
+    s1 = workouts.add_set(d, ex["id"], 8, 100.0)
+    s2 = workouts.add_set(d, ex["id"], 8, 100.0)
+    s3 = workouts.add_set(d, ex["id"], 8, 100.0)
+
+    workouts.delete_set(s2["id"])
+
+    sets = workouts.get_sets_for_date(d)
+    assert [s["set_number"] for s in sets] == [1, 2]
+    assert {s["id"] for s in sets} == {s1["id"], s3["id"]}
+
+
+def test_update_set_changes_reps_and_weight():
+    import workouts
+
+    ex = workouts.get_or_create_exercise("squat")
+    d = date.today()
+    s = workouts.add_set(d, ex["id"], 5, 225.0)
+
+    updated = workouts.update_set(s["id"], reps=8, weight_lbs=185.0)
+    assert updated["reps"] == 8
+    assert updated["weight_lbs"] == 185.0
+    assert updated["set_number"] == s["set_number"]  # unchanged
+
+
+def test_update_set_returns_none_for_missing_id():
+    import workouts
+
+    assert workouts.update_set(999999, reps=5, weight_lbs=100.0) is None
+
+
 def test_exercise_history_dataframe():
     import workouts
 

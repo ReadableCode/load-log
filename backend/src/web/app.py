@@ -332,7 +332,7 @@ def _render_day(picked: date) -> None:
 
     if not exercise_name:
         st.info("Enter or pick an exercise to start logging sets.")
-        _show_set_table(sets)
+        _show_set_table(picked, sets)
         return
 
     ex = workouts.get_or_create_exercise(exercise_name)
@@ -371,7 +371,7 @@ def _render_day(picked: date) -> None:
             workouts.add_set(picked, ex["id"], int(reps), float(weight))
             st.rerun()
 
-    _show_set_table(sets)
+    _show_set_table(picked, sets)
 
     if sets:
         st.write("**Progressive-overload suggestions:**")
@@ -387,15 +387,66 @@ def _render_day(picked: date) -> None:
                 st.write(f"• {s['exercise_name']}: next session try **{suggestion:g} lbs**")
 
 
-def _show_set_table(sets: list[dict]) -> None:
+def _show_set_table(picked: date, sets: list[dict]) -> None:
+    """Render an editable table of the day's sets. Inline edits to reps/weight
+    persist on commit (tab-out or Enter); clicking 🗑 on a row deletes it.
+    Triggers st.rerun() when any change is committed.
+    """
     if not sets:
         st.caption("No sets logged on this day yet.")
         return
-    st.write("**Sets logged on this day:**")
+
+    st.write(
+        "**Sets logged on this day** — edit reps/weight in place, or click 🗑 to delete:"
+    )
+
     df = pd.DataFrame(sets)[
-        ["exercise_name", "set_number", "reps", "weight_lbs"]
-    ].rename(columns={"weight_lbs": "weight"})
-    st.dataframe(df, use_container_width=True, hide_index=True)
+        ["id", "exercise_name", "set_number", "reps", "weight_lbs"]
+    ]
+    edited = st.data_editor(
+        df,
+        column_config={
+            "id": None,
+            "exercise_name": st.column_config.TextColumn("Exercise", disabled=True),
+            "set_number": st.column_config.NumberColumn("Set", disabled=True),
+            "reps": st.column_config.NumberColumn(
+                "Reps", required=True, min_value=1, max_value=100, step=1, format="%d",
+            ),
+            "weight_lbs": st.column_config.NumberColumn(
+                "Weight (lbs)", required=True, min_value=0.0, max_value=2000.0, step=2.5,
+            ),
+        },
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        key=f"sets_editor_{picked.isoformat()}",
+    )
+
+    orig_ids = {int(i) for i in df["id"]}
+    surviving = edited.dropna(subset=["id"])
+    new_ids = {int(i) for i in surviving["id"]}
+
+    changed = False
+    for sid in orig_ids - new_ids:
+        workouts.delete_set(sid)
+        changed = True
+
+    orig_map = {int(r["id"]): r for _, r in df.iterrows()}
+    new_map = {int(r["id"]): r for _, r in surviving.iterrows()}
+    for sid in orig_ids & new_ids:
+        if (
+            int(orig_map[sid]["reps"]) != int(new_map[sid]["reps"])
+            or float(orig_map[sid]["weight_lbs"]) != float(new_map[sid]["weight_lbs"])
+        ):
+            workouts.update_set(
+                sid,
+                int(new_map[sid]["reps"]),
+                float(new_map[sid]["weight_lbs"]),
+            )
+            changed = True
+
+    if changed:
+        st.rerun()
 
 
 def _render_history_section() -> None:

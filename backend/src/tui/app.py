@@ -55,6 +55,10 @@ class LoadLogApp(App):
 
     /* Set-logging form */
     .form-label { width: 16; padding: 1 0; color: $text-muted; }
+
+    /* Set-row in the "logged this day" list */
+    .set-row { height: 3; padding: 0 1; }
+    .set-row > .set-text { width: 1fr; padding: 1 0; }
     """
 
     BINDINGS = [
