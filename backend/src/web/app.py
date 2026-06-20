@@ -3,7 +3,8 @@
 
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import altair as alt
 import pandas as pd
@@ -31,6 +32,24 @@ def _bootstrap_once():
 
 
 _bootstrap_once()
+
+
+def browser_today() -> date:
+    """Today's date in the *browser's* timezone, not the server's.
+
+    Streamlit runs server-side, so `date.today()` would use the container's clock
+    (UTC by default) and roll over to "tomorrow" in the evening for CST users.
+    `st.context.timezone` reports the viewer's IANA zone from the browser; we fall
+    back to the process-local date only if it's unavailable/unknown.
+    """
+    tz_name = getattr(st.context, "timezone", None)
+    if tz_name:
+        try:
+            return datetime.now(ZoneInfo(tz_name)).date()
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return date.today()
+
 
 # %%
 # Heatmap #
@@ -139,9 +158,9 @@ def page_habits():
         st.info("Add your first habit using the sidebar.")
         return
 
-    today = date.today()
+    today = browser_today()
     for h in all_habits:
-        streak = habits.get_current_streak(h["id"])
+        streak = habits.get_current_streak(h["id"], today=today)
         with st.expander(f"{h['name']}  •  streak: {streak}d", expanded=True):
             completions = habits.get_completions(h["id"], days=400)
             completed_set = set(completions)
@@ -289,7 +308,7 @@ def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
 def page_workouts():
     st.header("Workouts")
 
-    today = date.today()
+    today = browser_today()
     volumes = workouts.get_volume_by_date(days=400)
 
     event = st.altair_chart(

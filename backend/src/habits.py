@@ -122,10 +122,16 @@ def get_completion_counts(days: int = 7) -> dict[int, int]:
 # Derived #
 
 
-def get_current_streak(habit_id: int) -> int:
-    """Consecutive completed days ending today (or yesterday if today not done)."""
+def get_current_streak(habit_id: int, today: date | None = None) -> int:
+    """Consecutive completed days ending today (or yesterday if today not done).
+
+    `today` lets callers pass a timezone-correct date (e.g. the web UI passes the
+    browser's local date). When omitted, falls back to the process-local date,
+    which is what the TUI wants.
+    """
     completions = set(get_completions(habit_id, days=400))
-    today = date.today()
+    if today is None:
+        today = date.today()
     if today not in completions and (today - timedelta(days=1)) not in completions:
         return 0
     cursor = today if today in completions else today - timedelta(days=1)

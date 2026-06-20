@@ -22,6 +22,7 @@ dependencies = [
     "sqlalchemy>=2.0.43",
     "streamlit>=1.40",
     "textual>=0.80",
+    "tzdata>=2024.1",  # zoneinfo data for python:3.13-slim (no system tzdata)
     "uvicorn>=0.34.0",
 ]
 

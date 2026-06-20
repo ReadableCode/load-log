@@ -680,6 +680,7 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "streamlit" },
     { name = "textual" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -702,6 +703,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.43" },
     { name = "streamlit", specifier = ">=1.40" },
     { name = "textual", specifier = ">=0.80" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
 
