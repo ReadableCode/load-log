@@ -1,0 +1,85 @@
+# Local dev stack for cloners: a self-contained load-log (its own throwaway
+# Postgres + PostgREST + auth + Streamlit). Mirrors the prod architecture so the
+# app code behaves the same locally as it does behind tinkernet.me.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+#   App:       http://localhost:8505
+#   PostgREST: http://localhost:3000
+#   Auth:      http://localhost:8000
+#
+# First run: the streamlit container runs `alembic upgrade head` on startup,
+# which creates the load_log schema + tables. If PostgREST 404s a table right
+# after first boot, `docker compose -f docker-compose.dev.yml restart postgrest`
+# to refresh its schema cache.
+services:
+  postgres:
+    image: postgres:17
+    container_name: load_log_dev_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: load_log
+    volumes:
+      - ./deploy/dev_init.sql:/docker-entrypoint-initdb.d/dev_init.sql:ro
+    ports:
+      - "5432:5432"
+
+  postgrest:
+    image: postgrest/postgrest:latest
+    container_name: load_log_dev_postgrest
+    environment:
+      PGRST_DB_URI: postgres://postgrest_authenticator:localdev@postgres:5432/load_log
+      PGRST_DB_SCHEMAS: load_log
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_JWT_SECRET: localdevsecret_at_least_32_chars_long
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+
+  # The shared auth service (same app-agnostic image as prod, built from the
+  # sibling postgrest-auth/ repo). Not a per-app container.
+  auth:
+    build:
+      context: ../postgrest-auth
+    container_name: load_log_dev_auth
+    environment:
+      POSTGRES_URL: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: load_log
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localdev
+      JWT_SECRET: localdevsecret_at_least_32_chars_long
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  load-log-streamlit:
+    build:
+      context: ./backend
+    container_name: load_log_dev_streamlit
+    command:
+      - uv
+      - run
+      - streamlit
+      - run
+      - src/web/app.py
+      - --server.port=8505
+      - --server.address=0.0.0.0
+      - --server.headless=true
+    environment:
+      POSTGREST_URL: http://postgrest:3000
+      AUTH_URL: http://auth:8000
+      # For the startup `alembic upgrade head`:
+      POSTGRES_URL: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: load_log
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localdev
+    ports:
+      - "8505:8505"
+    depends_on:
+      - postgrest
+      - auth

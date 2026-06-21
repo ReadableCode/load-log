@@ -4,33 +4,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Load Log is a personal health tracking app with three interfaces over the same PostgreSQL database:
+Load Log is a personal health tracking app with two interfaces over the same
+data, both reached through **PostgREST** (never Postgres directly):
 
 - **TUI** (Textual) — terminal, keyboard-driven data entry
 - **Web** (Streamlit) — browser, charts and visualizations
-- **API** (FastAPI) — HTTP, for automation
 
-Features: daily habit tracker with GitHub-style heatmap, workout tracker with progressive overload guidance.
+Features: daily habit tracker with GitHub-style heatmap, workout tracker with
+progressive overload guidance.
 
-See `backend/docs/architecture.md`, `backend/docs/schema.md`, and `backend/docs/features.md` for the full plan.
+Architecture: each client logs in through the shared auth service
+(`https://auth.tinkernet.me`) to get a JWT, then talks to PostgREST
+(`https://pgrest.tinkernet.me`) with `Authorization: Bearer <jwt>`. Postgres
+enforces access via the `load_log_user` role. See `migration_plan.md` for the
+full design and `deploy/DEPLOY.md` for the server runbook.
 
 ## Source Layout
 
 ```text
 backend/
 ├── src/
-│   ├── config.py     # env vars, walks up to find .env
-│   ├── db.py         # psycopg2 pool, ensure_database_exists, ensure_tables
-│   ├── habits.py     # all SQL for habit tracker
-│   ├── workouts.py   # all SQL for workout tracker (date-based, no sessions)
-│   ├── api.py        # FastAPI routes (thin wrappers)
-│   ├── main.py       # CLI entry point
-│   ├── tui/          # Textual TUI (app.py, habits.py, workouts.py)
-│   └── web/          # Streamlit app (app.py)
-├── tests/            # conftest.py forces POSTGRES_DB=load_log_test
-├── scripts/          # explicit DB migrations (e.g. migrate_drop_sessions.py)
-└── docs/             # architecture / schema / features
+│   ├── config.py      # env vars, walks up to find .env (loads it into os.environ)
+│   ├── api_client.py  # shared PostgREST + auth HTTP client (used by web AND tui)
+│   ├── main.py        # CLI entry point (stub)
+│   ├── tui/           # Textual TUI (app.py, habits.py, workouts.py)
+│   ├── web/           # Streamlit app (app.py)
+│   └── utils/         # display helpers
+├── alembic/           # migrations (versions/), env.py targets the load_log schema
+├── alembic.ini
+├── docker-entrypoint.sh  # runs `alembic upgrade head` before the app starts
+├── scripts/           # one-off ops scripts (create_user.py, backup_to_files.py)
+└── docs/              # architecture / schema / features
 ```
+
+The shared auth service is a **separate repo** (`../postgrest-auth/`), not part
+of load-log — it is server infrastructure, like PostgREST.
 
 ## Commands
 
@@ -38,84 +46,70 @@ backend/
 # Install / sync deps
 cd backend && uv sync
 
-# Run API server
-cd backend && PYTHONPATH=src uv run uvicorn api:app --reload --port 8000
-
-# Run Streamlit web UI
+# Run Streamlit web UI (logs in via a form)
 cd backend && PYTHONPATH=src uv run streamlit run src/web/app.py
 
-# Run TUI
+# Run TUI (reads LOAD_LOG_USERNAME / LOAD_LOG_PASSWORD from .env to log in)
 cd backend && PYTHONPATH=src uv run python -m tui.app
 
-# Run all tests
-cd backend && PYTHONPATH=src uv run pytest
-
-# Run a single test file
-cd backend && PYTHONPATH=src uv run pytest tests/test_habits.py
-
 # Lint
-cd backend && uv run flake8 src/ tests/
+cd backend && uv run flake8 src/
 
 # Type check
 cd backend && uv run mypy src/
 
 # Format
-cd backend && uv run black src/ tests/ && uv run isort src/ tests/
+cd backend && uv run black src/ && uv run isort src/
+
+# Apply migrations manually (normally the container entrypoint does this)
+cd backend && uv run alembic upgrade head
 ```
 
-## Database
+## Data Access
 
-- Production DB: `load_log` — created on first startup via `ensure_database_exists`
-- Test DB: `load_log_test` — `tests/conftest.py` overrides `POSTGRES_DB` before
-  `config.py` reads it, so `pytest` can NEVER touch the production DB
-- `db.py::ensure_tables()` only ever runs `CREATE TABLE IF NOT EXISTS`. If it
-  detects an old schema, it raises and refuses to start. Explicit migrations
-  live under `backend/scripts/` (e.g. `migrate_drop_sessions.py`) and write
-  backups before changing anything
-- Schema: see `backend/docs/schema.md`
-- Connection pattern: psycopg2 connection pool (matches `postgres_tools.py` in dotfiles)
-- `.env` at repo root; `config.py` walks up directories until it finds a `.env`
+- All data access goes through `src/api_client.py`, which calls PostgREST over
+  HTTP with a Bearer JWT. There is **no** psycopg2/SQLAlchemy in the app paths.
+- Auth: `api_client.login(username, password)` POSTs to the auth service and
+  returns a JWT. The web app stores it in `st.session_state`; the TUI threads it
+  into each screen. Every PostgREST call carries `Authorization: Bearer <jwt>`.
+- Tables are exposed at the schema root (e.g. `/workout_sets`) because
+  `PGRST_DB_SCHEMAS=load_log` makes `load_log` the default schema — paths are
+  NOT prefixed with `/load_log`.
+- Schema lives in the `load_log` schema of the `load_log` database. See
+  `backend/docs/schema.md`. Schema changes go through **Alembic** migrations
+  (`backend/alembic/versions/`), applied on container startup by
+  `docker-entrypoint.sh`.
+- Direct Postgres connections remain only in ops tooling: Alembic, and the
+  `scripts/` helpers (`create_user.py` seeds `load_log.users`;
+  `backup_to_files.py` dumps tables to CSV/Parquet). These read `POSTGRES_*`
+  from `.env`.
 
-Required `.env` keys: `POSTGRES_URL` (host), `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT`
-
-## Docker Compose
-
-Both compose setups connect to the **same shared Postgres** (defined in
-`/Users/jason/GitHub/Docker/docker_compose_projects.yaml`). We never host our
-own DB — single source of truth.
-
-- **Portable dev stack** — `docker-compose.yml` at repo root. Runs API + web
-  containers anywhere; the `.env` tells them how to reach the shared DB.
-  Start with `docker-compose up -d --build`.
-- **Server deployment** — service blocks in `backend/docs/architecture.md`
-  appended to `docker_compose_projects.yaml` (named `load-log-fastapi` /
-  `load-log-streamlit`).
-
-In both setups API maps to host port `8004`, Streamlit to `8505`.
+Required `.env` keys for clients: `POSTGREST_URL`, `AUTH_URL` (both default to
+the tinkernet deployment), plus `LOAD_LOG_USERNAME` / `LOAD_LOG_PASSWORD` for the
+non-interactive TUI. `POSTGRES_*` keys are needed only for Alembic + scripts.
 
 ## Code Conventions
 
 - `# %%` section markers in every file (Jupyter cell compatibility)
-- All SQL lives in `habits.py` / `workouts.py` only — interfaces contain no SQL
-- DB functions return `dict`, `list[dict]`, or `pd.DataFrame`, never raw cursor rows
-- No ORM — raw psycopg2 with `%s` parameter binding
+- Data access is HTTP-only via `api_client`; interfaces contain no SQL
+- `api_client` functions return `dict`, `list[dict]`, or `pd.DataFrame`
 - Flake8: max line length 120, max complexity 15
 
 ## Safety Rules (Database)
 
-- **Never** add `DROP`, `TRUNCATE`, `ALTER COLUMN`, or `DELETE` without
-  `WHERE` to any startup/bootstrap path. If `db.ensure_tables()` detects
-  legacy schema, it raises and aborts — it does **not** mutate.
-- Schema migrations live in `backend/scripts/` as explicit one-shot scripts
-  that the user runs by hand. Each one must `CREATE TABLE … AS SELECT`
-  backup tables (`*_backup_YYYYMMDD_HHMMSS`) before any destructive
-  operation.
-- Tests **must** run against `load_log_test`. `tests/conftest.py` sets
-  `POSTGRES_DB` via `os.environ` before any `db`/`config` import. Do not
-  weaken or remove that override.
-- Confirm with the user before running any ad-hoc `psql`/`docker exec`
-  command that mutates rows in the shared Postgres, regardless of how
-  confident you are that they're "test data."
+- Schema changes go through Alembic migrations under
+  `backend/alembic/versions/`. Migrations must be **non-destructive** by default:
+  no `DROP`, `TRUNCATE`, `ALTER COLUMN`, or unfiltered `DELETE` in an upgrade
+  path without an explicit, reviewed reason. The baseline (`0001`) uses
+  `CREATE ... IF NOT EXISTS` so it is a no-op on the populated prod DB and builds
+  a fresh dev DB.
+- A verified CSV/Parquet backup exists under `data/backup_*/`; re-run
+  `scripts/backup_to_files.py` (read-only) before any risky schema work.
+- `load_log.users` (password hashes) must never be granted to `load_log_user` /
+  `web_anon`, so PostgREST cannot serve it. Only the auth service reads it, as
+  the superuser.
+- Confirm with the user before running any ad-hoc command that mutates rows in
+  the shared Postgres.
 
 ## TUI Design Rules (Textual)
 
@@ -134,4 +128,5 @@ In both setups API maps to host port `8004`, Streamlit to `8505`.
 
 - Python 3.13 (`backend/.python-version`)
 - Package manager: `uv`
-- Docker: same `backend/Dockerfile` for both API and web services; web overrides CMD
+- Docker: `backend/Dockerfile` builds the web/TUI image; the entrypoint runs
+  Alembic, then the (compose-overridable) command.

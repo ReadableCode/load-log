@@ -2,7 +2,8 @@
 
 Database: `load_log`
 
-All tables created idempotently in `db.py::ensure_tables()`.
+Tables live in the `load_log` schema and are created/evolved via Alembic
+migrations (`backend/alembic/versions/`). The DDL below is the canonical shape.
 
 ---
 
@@ -83,25 +84,19 @@ CREATE INDEX IF NOT EXISTS workout_sets_date_idx ON workout_sets (workout_date);
   reference for "what to beat"
 - Per-exercise max weight over time → strength trend chart
 
-**Crash safety:** every `INSERT` of a set commits its own transaction, so a
+**Crash safety:** each set is inserted as its own request/transaction, so a
 TUI/web crash mid-workout never loses already-logged sets.
 
-**No destructive bootstrap.** `db.ensure_tables()` only `CREATE TABLE IF NOT
-EXISTS`s. If it detects schema drift (e.g. the legacy `workout_sets.session_id`
-column), it **raises and refuses to start** rather than silently dropping
-tables. Run `backend/scripts/migrate_drop_sessions.py` to migrate explicitly;
-that script backs `workout_sets` and `workout_sessions` up into timestamped
-backup tables (`workout_sets_backup_YYYYMMDD_HHMMSS`) **before** rewriting
-anything.
-
-**Test isolation.** `tests/conftest.py` forces `POSTGRES_DB=load_log_test`
-(override with `LOAD_LOG_TEST_DB`) before `config.py` reads the env. A
-`pytest` run can never touch the production `load_log` DB. The test DB is
-auto-created on first run, alongside `load_log`, on the same Postgres host.
+**Migrations, not bootstrap.** Schema changes go through Alembic
+(`backend/alembic/versions/`). Migrations are non-destructive by default (no
+`DROP`/`ALTER COLUMN`/unfiltered `DELETE` without explicit review). The baseline
+`0001` uses `CREATE ... IF NOT EXISTS` (a no-op on the populated prod DB; builds
+a fresh dev DB). Take a backup first with the read-only
+`backend/scripts/backup_to_files.py` (CSV/Parquet) before any risky change.
 
 ---
 
-## Progressive Overload Logic (in `workouts.py`)
+## Progressive Overload Logic (in `api_client.py`)
 
 Not a DB concept — computed from the data:
 

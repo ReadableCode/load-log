@@ -10,27 +10,30 @@ The user defines habits they want to do every day (e.g., "10,000 steps", "30 pus
 
 ---
 
-### `habits.py` — functions to implement
+### Habit data functions (`api_client.py`)
+
+All data access is HTTP to PostgREST with a Bearer JWT — every function takes the
+`token` as its first argument. There is no SQL in the app.
 
 ```python
-def get_all_habits() -> list[dict]
-    # Returns [{id, name, created_at}, ...]
+def get_all_habits(token) -> list[dict]
+    # GET /habits → [{id, name, created_at}, ...]
 
-def add_habit(name: str) -> dict
-    # INSERT INTO habits. Returns the new row.
+def add_habit(token, name: str) -> dict
+    # POST /habits → the new row
 
-def delete_habit(habit_id: int) -> None
-    # DELETE FROM habits WHERE id = habit_id (cascades to completions)
+def delete_habit(token, habit_id: int) -> None
+    # DELETE /habits?id=eq.<id> (cascades to completions)
 
-def get_completions(habit_id: int, days: int = 365) -> list[date]
-    # Returns sorted list of completed dates in the last `days` days
+def get_completions(token, habit_id: int, days: int = 365) -> list[date]
+    # GET /habit_completions filtered to the last `days` days → sorted dates
 
-def toggle_completion(habit_id: int, target_date: date) -> bool
+def toggle_completion(token, habit_id: int, target_date: date) -> bool
     # If (habit_id, target_date) exists: DELETE it, return False
-    # If not: INSERT it, return True
+    # If not: POST it, return True
 
-def get_completion_counts(days: int = 7) -> dict[int, int]
-    # Returns {habit_id: count} for the last `days` days — for the summary view
+def get_current_streak(token, habit_id: int, today=None) -> int
+    # Consecutive completed days ending today
 ```
 
 ---
@@ -93,44 +96,39 @@ The user logs a workout session set by set. They pick an exercise name (autocomp
 
 ---
 
-### `workouts.py` — functions
+### Workout data functions (`api_client.py`)
+
+Same as habits: HTTP to PostgREST, `token` first arg. Operations PostgREST can't
+do server-side (next `set_number`, renumber-after-delete, volume aggregation,
+"most recent prior date") are composed client-side from small ordered reads.
 
 ```python
-def get_all_exercises() -> list[dict]
+def get_all_exercises(token) -> list[dict]
     # [{id, name}, ...] sorted by name
 
-def get_or_create_exercise(name: str) -> dict
-    # Case-insensitive lookup, INSERT if not found.
+def get_or_create_exercise(token, name: str) -> dict
+    # Case-insensitive lookup (ilike), POST if not found.
 
-def add_set(workout_date: date, exercise_id: int, reps: int, weight_lbs: float) -> dict
-    # Auto-assigns next set_number within (date, exercise).
-    # Commits IMMEDIATELY so an interrupted workout never loses logged sets.
+def add_set(token, workout_date, exercise_id, reps, weight_lbs) -> dict
+    # Derives next set_number within (date, exercise) from a read, then POSTs.
 
-def delete_set(set_id: int) -> None
-    # Also renumbers the remaining sets for that (date, exercise) so the
-    # visible set_number stays 1..N — no gaps after a middle delete.
+def delete_set(token, set_id: int) -> None
+    # DELETE, then renumber survivors so visible set_number stays 1..N.
 
-def update_set(set_id: int, reps: int, weight_lbs: float) -> dict | None
-    # Patch reps/weight on an existing set. Returns the updated row or
-    # None if the set doesn't exist.
+def update_set(token, set_id, reps, weight_lbs) -> dict | None
+    # PATCH reps/weight; returns the updated row or None.
 
-def get_sets_for_date(workout_date: date) -> list[dict]
+def get_sets_for_date(token, workout_date) -> list[dict]
     # [{id, exercise_name, exercise_id, set_number, reps, weight_lbs}, ...]
+    # (joins the exercise name via a PostgREST embedded resource)
 
-def get_last_workout_for_exercise(exercise_id: int, before_date: date | None = None) -> list[dict]
+def get_last_workout_for_exercise(token, exercise_id, before_date=None) -> list[dict]
     # Sets from the most recent prior date that included this exercise.
 
-def get_exercise_history(exercise_id: int, limit_days: int = 365) -> pd.DataFrame
-    # [workout_date, set_number, reps, weight_lbs]
-
-def get_volume_by_date(days: int = 365) -> dict[date, float]
-    # {date: sum(reps * weight_lbs)} — drives the volume heatmap.
-
-def get_workout_dates(days: int = 365) -> list[date]
-    # Distinct dates that have any logged sets.
-
-def suggest_next_weight(exercise_id: int, current_date: date) -> float | None
-    # See logic in schema.md.
+def get_exercise_history(token, exercise_id, limit_days=365) -> pd.DataFrame
+def get_volume_by_date(token, days=365) -> dict[date, float]   # drives the volume heatmap
+def get_workout_dates(token, days=365) -> list[date]
+def suggest_next_weight(token, exercise_id, current_date) -> float | None
 ```
 
 ---
@@ -235,61 +233,55 @@ date" has explicit `Edit` and `Delete` buttons:
 
 ---
 
-## API Endpoints (FastAPI `api.py`)
+## Data Access (PostgREST)
 
-All routes are thin wrappers — they call `habits.py` / `workouts.py` and return the result.
-
-### Habits
-
-```text
-GET    /habits                     → list all habits
-POST   /habits                     → add habit {name}
-DELETE /habits/{id}                → delete habit
-GET    /habits/{id}/completions    → completions for last N days
-POST   /habits/{id}/toggle         → toggle {date}
-```
-
-### Workouts
+There is no custom API. `api_client.py` calls PostgREST directly; PostgREST
+exposes each table at the schema root (paths are NOT prefixed with `/load_log`
+because `load_log` is the default schema). Every request carries
+`Authorization: Bearer <jwt>` and Postgres enforces access via `load_log_user`.
 
 ```text
-GET    /exercises                          → list exercises
-GET    /workouts/volume?days=365           → {date: total_volume} for heatmap
-GET    /workouts/{workout_date}            → sets logged on a date
-POST   /workouts/{workout_date}/sets       → add set {exercise_name, reps, weight_lbs}
-PATCH  /sets/{set_id}                      → update reps/weight on an existing set
-DELETE /sets/{set_id}                      → remove a logged set (renumbers the rest)
-GET    /exercises/{id}/history             → set history for exercise
-GET    /exercises/{id}/suggestion?workout_date=YYYY-MM-DD
-                                           → progressive overload suggestion
+# Auth (shared service)
+POST   https://auth.tinkernet.me/token        {schema, username, password} → {token}
+
+# Data (PostgREST), with Authorization: Bearer <token>
+GET    /habits?select=*                        list habits
+POST   /habits                                 add habit {name}
+DELETE /habits?id=eq.<id>                       delete habit (cascades)
+GET    /habit_completions?habit_id=eq.<id>&completed_date=gte.<date>
+POST   /habit_completions                       mark a day  {habit_id, completed_date}
+DELETE /habit_completions?habit_id=eq.<id>&completed_date=eq.<date>
+
+GET    /exercises?select=id,name&order=name.asc
+POST   /exercises                               {name}
+GET    /workout_sets?workout_date=eq.<date>&select=...,exercises(name)
+POST   /workout_sets                            {workout_date, exercise_id, set_number, reps, weight_lbs}
+PATCH  /workout_sets?id=eq.<id>                  {reps, weight_lbs}
+DELETE /workout_sets?id=eq.<id>
 ```
+
+Composite behaviors (next `set_number`, renumber-after-delete, volume totals,
+"most recent prior date", progressive-overload suggestion) are assembled in
+`api_client.py` from these primitives.
 
 ---
 
 ## Status
 
-All eight items of the original build order are complete:
+The PostgREST migration is complete:
 
-1. ✅ `db.py` — pool, `ensure_database_exists` (auto-refreshes glibc
-   collation), `ensure_tables` (no-DROP, raises on legacy schema).
-2. ✅ `habits.py` — CRUD + heatmap completions + streak.
-3. ✅ `workouts.py` — date-keyed sets (no session table), volume aggregation,
-   progressive-overload suggestion.
-4. ✅ `api.py` — habit + workout routes, plus `DELETE /sets/{id}` and
-   `GET /workouts/volume`.
-5. ✅ `web/app.py` — Streamlit with clickable Altair heatmaps (habit
-   completion + workout volume) and per-set prefill.
-6. ✅ `tui/` — Textual screens with clickable heatmap grids and Enter-to-log
-   form on the workouts screen. Design rules in [tui-design memory] and
-   above.
-7. ✅ `pyproject.toml` — `psycopg2-binary`, `textual`, `streamlit`,
-   `altair`, `pydantic`, `flake8`.
-8. ✅ `CLAUDE.md` updated with run commands and safety rules.
+1. ✅ `api_client.py` — shared PostgREST + auth HTTP client (web and TUI).
+2. ✅ `web/app.py` — Streamlit with a login gate and clickable Altair heatmaps
+   (habit completion + workout volume), per-set prefill, all data via PostgREST.
+3. ✅ `tui/` — Textual screens (clickable heatmaps, Enter-to-log form); logs in
+   from `LOAD_LOG_USERNAME`/`LOAD_LOG_PASSWORD` and uses the same client.
+4. ✅ `alembic/` — `0001` idempotent baseline + `0002` users table; applied on
+   startup by `docker-entrypoint.sh`.
+5. ✅ Shared `auth` service (`../postgrest-auth/`) + `postgrest` added to
+   `docker_compose_projects.yaml`; SWAG confs for `pgrest`/`auth`.
+6. ✅ `scripts/create_user.py` (seed users) and `scripts/backup_to_files.py`
+   (CSV/Parquet backup) remain as direct-DB ops tools.
 
-Plus added after the fact:
-
-- `tests/conftest.py` forces `POSTGRES_DB=load_log_test` so test runs can
-  never touch production.
-- `backend/scripts/migrate_drop_sessions.py` — the explicit, backup-first
-  migration from the legacy session-based schema.
-- `docker-compose.yml` (repo root) — DB-less, connects out to the shared
-  Postgres via `${POSTGRES_URL}` in `.env`.
+Removed with the migration: the old direct-Postgres data layer (`db.py`,
+`habits.py`, `workouts.py`), the unused FastAPI surface (`api.py`), their tests,
+and the legacy `migrate_drop_sessions.py` script.

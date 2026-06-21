@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import altair as alt
 import pandas as pd
+import requests
 import streamlit as st
 
 # Ensure src/ on path when launched via `streamlit run src/web/app.py`
@@ -15,9 +16,9 @@ SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import habits  # noqa: E402
-import workouts  # noqa: E402
-from db import bootstrap  # noqa: E402
+# The app talks to PostgREST over HTTP via the shared api_client — no direct
+# Postgres. (The TUI uses the same client.)
+import api_client  # noqa: E402
 
 # %%
 # Setup #
@@ -25,13 +26,40 @@ from db import bootstrap  # noqa: E402
 st.set_page_config(page_title="Load Log", page_icon="🏋", layout="wide")
 
 
-@st.cache_resource
-def _bootstrap_once():
-    bootstrap()
-    return True
+# %%
+# Auth #
 
 
-_bootstrap_once()
+def _token() -> str:
+    """The current user's JWT. Login gating guarantees it exists by the time any
+    page renders, so callers can assume a non-empty token."""
+    return st.session_state["jwt"]
+
+
+def require_login() -> bool:
+    """Render the login form when unauthenticated. Returns True once a JWT is in
+    session_state, False while the login form is still showing."""
+    if st.session_state.get("jwt"):
+        return True
+
+    st.title("Load Log")
+    st.caption("Sign in to continue.")
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in", type="primary")
+    if submitted:
+        try:
+            token = api_client.login(username, password)
+        except requests.HTTPError:
+            st.error("Invalid username or password.")
+            return False
+        except requests.RequestException:
+            st.error("Could not reach the auth service. Try again shortly.")
+            return False
+        st.session_state["jwt"] = token
+        st.rerun()
+    return False
 
 
 def browser_today() -> date:
@@ -136,33 +164,34 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
 def page_habits():
     st.header("Daily Habits")
+    token = _token()
 
     with st.sidebar:
         st.subheader("Add Habit")
         new_name = st.text_input("Name", key="new_habit_name")
         if st.button("Add", key="add_habit_btn") and new_name.strip():
-            habits.add_habit(new_name.strip())
+            api_client.add_habit(token, new_name.strip())
             st.rerun()
 
         st.divider()
         st.subheader("Your Habits")
-        for h in habits.get_all_habits():
+        for h in api_client.get_all_habits(token):
             cols = st.columns([4, 1])
             cols[0].write(h["name"])
             if cols[1].button("✕", key=f"del_{h['id']}"):
-                habits.delete_habit(h["id"])
+                api_client.delete_habit(token, h["id"])
                 st.rerun()
 
-    all_habits = habits.get_all_habits()
+    all_habits = api_client.get_all_habits(token)
     if not all_habits:
         st.info("Add your first habit using the sidebar.")
         return
 
     today = browser_today()
     for h in all_habits:
-        streak = habits.get_current_streak(h["id"], today=today)
+        streak = api_client.get_current_streak(token, h["id"], today=today)
         with st.expander(f"{h['name']}  •  streak: {streak}d", expanded=True):
-            completions = habits.get_completions(h["id"], days=400)
+            completions = api_client.get_completions(token, h["id"], days=400)
             completed_set = set(completions)
 
             event = st.altair_chart(
@@ -183,11 +212,11 @@ def page_habits():
             cols = st.columns([1, 1])
             toggle_label = f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
             if cols[0].button(toggle_label, key=f"toggle_{h['id']}", type="primary"):
-                habits.toggle_completion(h["id"], picked)
+                api_client.toggle_completion(_token(), h["id"], picked)
                 st.rerun()
             today_label = "Uncheck today" if today in completed_set else "Mark today"
             if cols[1].button(today_label, key=f"today_{h['id']}"):
-                habits.toggle_completion(h["id"], today)
+                api_client.toggle_completion(_token(), h["id"], today)
                 st.rerun()
 
 
@@ -307,9 +336,10 @@ def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
 
 def page_workouts():
     st.header("Workouts")
+    token = _token()
 
     today = browser_today()
-    volumes = workouts.get_volume_by_date(days=400)
+    volumes = api_client.get_volume_by_date(token, days=400)
 
     event = st.altair_chart(
         build_volume_heatmap(volumes, today),
@@ -336,9 +366,10 @@ def page_workouts():
 
 
 def _render_day(picked: date) -> None:
-    sets = workouts.get_sets_for_date(picked)
+    token = _token()
+    sets = api_client.get_sets_for_date(token, picked)
 
-    exercises = workouts.get_all_exercises()
+    exercises = api_client.get_all_exercises(token)
     names = [e["name"] for e in exercises]
     cols = st.columns([3, 2])
     typed = cols[0].text_input(
@@ -354,8 +385,8 @@ def _render_day(picked: date) -> None:
         _show_set_table(picked, sets)
         return
 
-    ex = workouts.get_or_create_exercise(exercise_name)
-    last = workouts.get_last_workout_for_exercise(ex["id"], before_date=picked)
+    ex = api_client.get_or_create_exercise(token, exercise_name)
+    last = api_client.get_last_workout_for_exercise(token, ex["id"], before_date=picked)
     if last:
         st.caption(
             f"Last time ({last[0]['workout_date']}): "
@@ -387,7 +418,7 @@ def _render_day(picked: date) -> None:
         )
         submitted = st.form_submit_button("Log set (or press Enter)", type="primary")
         if submitted:
-            workouts.add_set(picked, ex["id"], int(reps), float(weight))
+            api_client.add_set(token, picked, ex["id"], int(reps), float(weight))
             st.rerun()
 
     _show_set_table(picked, sets)
@@ -399,7 +430,7 @@ def _render_day(picked: date) -> None:
             if s["exercise_id"] in seen:
                 continue
             seen.add(s["exercise_id"])
-            suggestion = workouts.suggest_next_weight(s["exercise_id"], picked)
+            suggestion = api_client.suggest_next_weight(token, s["exercise_id"], picked)
             if suggestion is None:
                 st.write(f"• {s['exercise_name']}: build a baseline next time")
             else:
@@ -445,9 +476,10 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
     surviving = edited.dropna(subset=["id"])
     new_ids = {int(i) for i in surviving["id"]}
 
+    token = _token()
     changed = False
     for sid in orig_ids - new_ids:
-        workouts.delete_set(sid)
+        api_client.delete_set(token, sid)
         changed = True
 
     orig_map = {int(r["id"]): r for _, r in df.iterrows()}
@@ -457,7 +489,8 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
             int(orig_map[sid]["reps"]) != int(new_map[sid]["reps"])
             or float(orig_map[sid]["weight_lbs"]) != float(new_map[sid]["weight_lbs"])
         ):
-            workouts.update_set(
+            api_client.update_set(
+                token,
                 sid,
                 int(new_map[sid]["reps"]),
                 float(new_map[sid]["weight_lbs"]),
@@ -469,8 +502,9 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
 
 
 def _render_history_section() -> None:
+    token = _token()
     st.subheader("Exercise History")
-    exercises = workouts.get_all_exercises()
+    exercises = api_client.get_all_exercises(token)
     if not exercises:
         return
     pick = st.selectbox(
@@ -479,7 +513,7 @@ def _render_history_section() -> None:
     if not pick:
         return
     ex_id = next(e["id"] for e in exercises if e["name"] == pick)
-    df = workouts.get_exercise_history(ex_id, limit_days=365)
+    df = api_client.get_exercise_history(token, ex_id, limit_days=365)
     if df.empty:
         st.info("No logged sets yet.")
         return
@@ -507,6 +541,10 @@ PAGES = {
     "Workouts": page_workouts,
 }
 
-choice = st.sidebar.radio("Page", list(PAGES.keys()))
-st.sidebar.divider()
-PAGES[choice]()
+if require_login():
+    if st.sidebar.button("Log out", key="logout_btn"):
+        st.session_state.pop("jwt", None)
+        st.rerun()
+    choice = st.sidebar.radio("Page", list(PAGES.keys()))
+    st.sidebar.divider()
+    PAGES[choice]()
