@@ -1,21 +1,35 @@
 -- 01_create_roles.sql — one-time PostgREST role setup (cluster-global roles).
--- Run ONCE on the EliteDesk Postgres. Roles are cluster-wide; you can run this
--- connected to any database. Safe to re-run: guarded with DO blocks.
+-- Safe to re-run (idempotent).
 --
---   docker exec -i postgres psql -U "$POSTGRES_USER" -d postgres < 01_create_roles.sql
+-- The PostgREST connection password is read from the POSTGREST_DB_PASSWORD
+-- ENVIRONMENT VARIABLE at run time (via psql \getenv) and is NEVER written into
+-- this committed file. Make that variable available to psql when you run it:
 --
--- IMPORTANT: replace CHANGE_ME_POSTGREST_DB_PASSWORD below with the SAME value
--- you put in POSTGREST_DB_PASSWORD in the .env that docker_compose_projects.yaml
--- uses. The two must match or PostgREST cannot connect.
+--   PW=$(grep -E '^POSTGREST_DB_PASSWORD=' /path/to/compose/.env | cut -d= -f2- | tr -d "\"'")
+--   sudo docker exec -i -e POSTGREST_DB_PASSWORD="$PW" postgres \
+--     psql -U postgres -d postgres -v ON_ERROR_STOP=1 < load-log/deploy/01_create_roles.sql
+--
+-- (\getenv requires psql 11+; the postgres:17 image is fine. Roles are
+-- cluster-wide, so connecting to any database is OK.)
 
--- Connection role PostgREST logs in as.
+\getenv pgrest_pw POSTGREST_DB_PASSWORD
+\if :{?pgrest_pw}
+\else
+  \echo '>>> POSTGREST_DB_PASSWORD is not set in the environment. Aborting.'
+  \quit
+\endif
+
+-- Connection role PostgREST logs in as (password set from the env var below).
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgrest_authenticator') THEN
-    CREATE ROLE postgrest_authenticator WITH LOGIN PASSWORD 'CHANGE_ME_POSTGREST_DB_PASSWORD' NOINHERIT;
+    CREATE ROLE postgrest_authenticator WITH LOGIN NOINHERIT;
   END IF;
 END
 $$;
+
+-- Set/refresh the password from the environment (kept out of this file).
+ALTER ROLE postgrest_authenticator WITH PASSWORD :'pgrest_pw';
 
 -- Anonymous role for unauthenticated requests (gets nothing by default).
 DO $$
