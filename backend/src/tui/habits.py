@@ -18,7 +18,7 @@ from textual.widgets import (
     Static,
 )
 
-import habits as habits_mod
+import api_client
 
 # %%
 # Constants #
@@ -103,6 +103,12 @@ class HabitsScreen(Screen):
         ("delete", "delete_selected", "Delete"),
     ]
 
+    def __init__(self, token: str):
+        super().__init__()
+        # JWT from the auth service — sent as a Bearer token on every PostgREST
+        # call via api_client. Threaded in from the app.
+        self.token = token
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Static("Habits", id="title")
@@ -125,13 +131,13 @@ class HabitsScreen(Screen):
         keep_index = lv.index or 0
         lv.clear()
         today = date.today()
-        for h in habits_mod.get_all_habits():
-            completions = set(habits_mod.get_completions(h["id"], days=30))
+        for h in api_client.get_all_habits(self.token):
+            completions = set(api_client.get_completions(self.token, h["id"], days=30))
             lv.append(
                 HabitItem(
                     habit=h,
                     done_today=today in completions,
-                    streak=habits_mod.get_current_streak(h["id"]),
+                    streak=api_client.get_current_streak(self.token, h["id"]),
                 )
             )
         if len(lv):
@@ -151,18 +157,18 @@ class HabitsScreen(Screen):
     def action_view_selected(self) -> None:
         item = self._selected()
         if item is not None:
-            self.app.push_screen(HabitDetailScreen(item.habit))
+            self.app.push_screen(HabitDetailScreen(item.habit, self.token))
 
     def action_toggle_today_selected(self) -> None:
         item = self._selected()
         if item is not None:
-            habits_mod.toggle_completion(item.habit["id"], date.today())
+            api_client.toggle_completion(self.token, item.habit["id"], date.today())
             self.refresh_list()
 
     def action_delete_selected(self) -> None:
         item = self._selected()
         if item is not None:
-            habits_mod.delete_habit(item.habit["id"])
+            api_client.delete_habit(self.token, item.habit["id"])
             self.refresh_list()
 
     # %%
@@ -173,7 +179,7 @@ class HabitsScreen(Screen):
             inp = self.query_one("#new-habit", Input)
             name = inp.value.strip()
             if name:
-                habits_mod.add_habit(name)
+                api_client.add_habit(self.token, name)
                 inp.value = ""
                 self.refresh_list()
 
@@ -181,13 +187,13 @@ class HabitsScreen(Screen):
         if event.input.id == "new-habit":
             name = event.value.strip()
             if name:
-                habits_mod.add_habit(name)
+                api_client.add_habit(self.token, name)
                 event.input.value = ""
                 self.refresh_list()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, HabitItem):
-            self.app.push_screen(HabitDetailScreen(event.item.habit))
+            self.app.push_screen(HabitDetailScreen(event.item.habit, self.token))
 
 
 # %%
@@ -201,9 +207,10 @@ class HabitDetailScreen(Screen):
         ("T", "toggle_today", "Toggle today"),
     ]
 
-    def __init__(self, habit: dict):
+    def __init__(self, habit: dict, token: str):
         super().__init__()
         self.habit = habit
+        self.token = token
         self.selected_date: date = date.today()
         self._cell_index: dict[date, DayCell] = {}
 
@@ -227,8 +234,8 @@ class HabitDetailScreen(Screen):
 
     def refresh_view(self) -> None:
         today = date.today()
-        completions = set(habits_mod.get_completions(self.habit["id"], days=365))
-        streak = habits_mod.get_current_streak(self.habit["id"])
+        completions = set(api_client.get_completions(self.token, self.habit["id"], days=365))
+        streak = api_client.get_current_streak(self.token, self.habit["id"])
 
         self.query_one("#streak", Static).update(
             f"Current streak: {streak} day{'s' if streak != 1 else ''}"
@@ -273,7 +280,7 @@ class HabitDetailScreen(Screen):
         self._refresh_selection()
 
     def _refresh_selection(self) -> None:
-        completions = set(habits_mod.get_completions(self.habit["id"], days=365))
+        completions = set(api_client.get_completions(self.token, self.habit["id"], days=365))
         for day, cell in self._cell_index.items():
             cell.completed = day in completions
             cell.set_status_class()
@@ -307,10 +314,10 @@ class HabitDetailScreen(Screen):
         self.app.pop_screen()
 
     def action_toggle_selected(self) -> None:
-        habits_mod.toggle_completion(self.habit["id"], self.selected_date)
+        api_client.toggle_completion(self.token, self.habit["id"], self.selected_date)
         self._refresh_selection()
 
     def action_toggle_today(self) -> None:
         self.selected_date = date.today()
-        habits_mod.toggle_completion(self.habit["id"], date.today())
+        api_client.toggle_completion(self.token, self.habit["id"], date.today())
         self._refresh_selection()

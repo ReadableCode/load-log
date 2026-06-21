@@ -9,9 +9,11 @@ SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+import config  # noqa: E402,F401  side effect: loads the repo .env into os.environ
+
 from textual.app import App  # noqa: E402
 
-from db import bootstrap  # noqa: E402
+import api_client  # noqa: E402
 from tui.habits import HabitsScreen  # noqa: E402
 from tui.workouts import WorkoutsScreen  # noqa: E402
 
@@ -67,21 +69,39 @@ class LoadLogApp(App):
         ("q", "quit", "Quit"),
     ]
 
+    def __init__(self, token: str) -> None:
+        super().__init__()
+        # JWT from the auth service; threaded into every screen, which sends it
+        # as a Bearer token on each PostgREST request via api_client.
+        self.token = token
+
     def on_mount(self) -> None:
-        bootstrap()
-        self.push_screen(HabitsScreen())
+        self.push_screen(HabitsScreen(self.token))
 
     def action_show_habits(self) -> None:
         self.pop_screen() if len(self.screen_stack) > 1 else None
-        self.push_screen(HabitsScreen())
+        self.push_screen(HabitsScreen(self.token))
 
     def action_show_workouts(self) -> None:
         self.pop_screen() if len(self.screen_stack) > 1 else None
-        self.push_screen(WorkoutsScreen())
+        self.push_screen(WorkoutsScreen(self.token))
 
 
 def main() -> None:
-    LoadLogApp().run()
+    # The TUI is just another PostgREST client: get a JWT from the auth service
+    # with credentials from the environment (.env), then run. Non-interactive so
+    # it works headless / scripted, identically to any other client.
+    username = os.environ.get("LOAD_LOG_USERNAME")
+    password = os.environ.get("LOAD_LOG_PASSWORD")
+    if not username or not password:
+        sys.exit(
+            "Set LOAD_LOG_USERNAME and LOAD_LOG_PASSWORD (in your .env) to run the TUI."
+        )
+    try:
+        token = api_client.login(username, password)
+    except Exception as exc:  # noqa: BLE001 — surface any login/network failure cleanly
+        sys.exit(f"Login failed: {exc}")
+    LoadLogApp(token).run()
 
 
 if __name__ == "__main__":

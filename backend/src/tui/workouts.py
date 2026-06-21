@@ -9,7 +9,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Static
 
-import workouts as workouts_mod
+import api_client
 
 # %%
 # Constants #
@@ -106,8 +106,11 @@ class WorkoutsScreen(Screen):
         ("t", "select_today", "Today"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, token: str) -> None:
         super().__init__()
+        # JWT from the auth service — sent as a Bearer token on every PostgREST
+        # call via api_client. Threaded in from the app.
+        self.token = token
         self.selected_date: date = date.today()
         self.current_exercise_id: int | None = None
         self.current_exercise_name: str = ""
@@ -166,7 +169,7 @@ class WorkoutsScreen(Screen):
 
     def refresh_view(self) -> None:
         today = date.today()
-        volumes = workouts_mod.get_volume_by_date(days=HEATMAP_WEEKS * 7 + 14)
+        volumes = api_client.get_volume_by_date(self.token, days=HEATMAP_WEEKS * 7 + 14)
         max_volume = max(volumes.values()) if volumes else 0.0
 
         start = today - timedelta(days=today.weekday()) - timedelta(weeks=HEATMAP_WEEKS - 1)
@@ -216,7 +219,7 @@ class WorkoutsScreen(Screen):
         if cell is not None:
             cell.add_class("selected")
 
-        volume = workouts_mod.get_volume_by_date(days=400).get(self.selected_date, 0.0)
+        volume = api_client.get_volume_by_date(self.token, days=400).get(self.selected_date, 0.0)
         self.query_one("#selected-info", Static).update(
             f"Selected: {self.selected_date.strftime('%a %b %d, %Y')}  •  "
             f"volume: {volume:,.0f} lbs"
@@ -225,7 +228,7 @@ class WorkoutsScreen(Screen):
     def _refresh_set_list(self) -> None:
         container = self.query_one("#set-list", VerticalScroll)
         container.remove_children()
-        sets = workouts_mod.get_sets_for_date(self.selected_date)
+        sets = api_client.get_sets_for_date(self.token, self.selected_date)
         if not sets:
             container.mount(Static("  (no sets logged)"))
             self._update_form_mode_label()
@@ -265,8 +268,8 @@ class WorkoutsScreen(Screen):
         if self.current_exercise_id is None:
             target.update("")
             return
-        last = workouts_mod.get_last_workout_for_exercise(
-            self.current_exercise_id, before_date=self.selected_date
+        last = api_client.get_last_workout_for_exercise(
+            self.token, self.current_exercise_id, before_date=self.selected_date
         )
         if not last:
             target.update(f"  {self.current_exercise_name}: no prior history.")
@@ -302,7 +305,7 @@ class WorkoutsScreen(Screen):
         elif button_id.startswith("edit-set-"):
             self._start_editing(int(button_id.removeprefix("edit-set-")))
         elif button_id.startswith("del-set-"):
-            workouts_mod.delete_set(int(button_id.removeprefix("del-set-")))
+            api_client.delete_set(self.token, int(button_id.removeprefix("del-set-")))
             # If we were editing this row, drop back to add mode.
             if self._editing_set_id == int(button_id.removeprefix("del-set-")):
                 self._cancel_edit()
@@ -329,7 +332,7 @@ class WorkoutsScreen(Screen):
         name = self.query_one("#exercise-name", Input).value.strip()
         if not name:
             return
-        ex = workouts_mod.get_or_create_exercise(name)
+        ex = api_client.get_or_create_exercise(self.token, name)
         self.current_exercise_id = ex["id"]
         self.current_exercise_name = ex["name"]
         self._refresh_last_workout()
@@ -343,15 +346,15 @@ class WorkoutsScreen(Screen):
         if self.current_exercise_id is None:
             return
         today_sets = [
-            s for s in workouts_mod.get_sets_for_date(self.selected_date)
+            s for s in api_client.get_sets_for_date(self.token, self.selected_date)
             if s["exercise_id"] == self.current_exercise_id
         ]
         source = None
         if today_sets:
             source = today_sets[-1]
         else:
-            last = workouts_mod.get_last_workout_for_exercise(
-                self.current_exercise_id, before_date=self.selected_date
+            last = api_client.get_last_workout_for_exercise(
+                self.token, self.current_exercise_id, before_date=self.selected_date
             )
             if last:
                 source = last[-1]
@@ -372,7 +375,7 @@ class WorkoutsScreen(Screen):
 
         if self._editing_set_id is not None:
             # Save edit, then drop back to add mode.
-            workouts_mod.update_set(self._editing_set_id, reps, weight)
+            api_client.update_set(self.token, self._editing_set_id, reps, weight)
             self._editing_set_id = None
             reps_input.value = ""
             weight_input.value = ""
@@ -386,7 +389,8 @@ class WorkoutsScreen(Screen):
             return
 
         # Commit immediately — survives a crash mid-workout.
-        workouts_mod.add_set(
+        api_client.add_set(
+            self.token,
             workout_date=self.selected_date,
             exercise_id=self.current_exercise_id,
             reps=reps,
@@ -400,7 +404,7 @@ class WorkoutsScreen(Screen):
 
     def _start_editing(self, set_id: int) -> None:
         target = next(
-            (s for s in workouts_mod.get_sets_for_date(self.selected_date)
+            (s for s in api_client.get_sets_for_date(self.token, self.selected_date)
              if s["id"] == set_id),
             None,
         )

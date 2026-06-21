@@ -16,8 +16,21 @@ RUN uv sync --frozen --no-dev
 
 COPY src/ ./src/
 
+# Alembic config + migrations. The entrypoint runs `alembic upgrade head`
+# before whatever CMD/compose-command is passed, so migrations apply first for
+# every service that uses this image.
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
+
 ENV PYTHONPATH=/app/src
 
-EXPOSE 8000 8505
+EXPOSE 8505
 
-CMD ["uv", "run", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["./docker-entrypoint.sh"]
+
+# Default to the Streamlit web app (the FastAPI surface was removed with the old
+# direct-Postgres data layer). The compose services may still override this.
+CMD ["uv", "run", "streamlit", "run", "src/web/app.py", \
+     "--server.port=8505", "--server.address=0.0.0.0", "--server.headless=true"]

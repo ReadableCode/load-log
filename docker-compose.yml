@@ -1,20 +1,11 @@
+# Portable single-container stack: just the Streamlit web app, pointed at the
+# shared PostgREST + auth service (defaults to the tinkernet deployment, override
+# via .env). Use docker-compose.dev.yml instead if you want a fully self-contained
+# local stack (its own Postgres + PostgREST + auth).
+#
+# The FastAPI `api` service was removed along with the old direct-Postgres data
+# layer; the app reaches data only through PostgREST now.
 services:
-  api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: load_log_api
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      POSTGRES_URL: ${POSTGRES_URL}
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB:-load_log}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "8004:8000"
-    restart: unless-stopped
-
   web:
     build:
       context: ./backend
@@ -31,6 +22,11 @@ services:
       - --server.headless=true
     environment:
       APP_ENV: ${APP_ENV:-development}
+      # Data + login go through PostgREST and the shared auth service.
+      POSTGREST_URL: ${POSTGREST_URL:-https://pgrest.tinkernet.me}
+      AUTH_URL: ${AUTH_URL:-https://auth.tinkernet.me}
+      # Still needed so the entrypoint can run `alembic upgrade head` (Alembic
+      # connects to Postgres directly) before Streamlit starts.
       POSTGRES_URL: ${POSTGRES_URL}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB:-load_log}
