@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 POSTGRES_URL = os.environ.get("POSTGRES_URL", "localhost")
 POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
-POSTGRES_DB = os.environ.get("POSTGRES_DB", "load_log")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "apps")
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 

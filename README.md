@@ -37,14 +37,14 @@ $EDITOR .env                # fill in POSTGRES_URL / USER / PASSWORD
 cd backend && uv sync
 ```
 
-`.env` keys (database optional, defaults to `load_log`):
+`.env` keys (database optional, defaults to the shared `apps` database):
 
 ```env
 POSTGRES_URL=<host or LAN IP of the shared Postgres>
 POSTGRES_PORT=5432
 POSTGRES_USER=<user>
 POSTGRES_PASSWORD=<password>
-POSTGRES_DB=load_log
+POSTGRES_DB=apps
 ```
 
 The first run of any UI bootstraps the `load_log` database and creates the

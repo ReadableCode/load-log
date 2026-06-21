@@ -1,9 +1,9 @@
 -- 02_migrate_schema.sql — move load-log tables from `public` into the `load_log`
--- schema (inside the load_log database) and grant the app role access.
+-- schema (inside the shared `apps` database) and grant the app role access.
 --
--- Run AFTER 01_create_roles.sql, connected to the load_log database:
+-- Run AFTER 01_create_roles.sql, connected to the apps database:
 --
---   docker exec -i postgres psql -U "$POSTGRES_USER" -d load_log < 02_migrate_schema.sql
+--   docker exec -i postgres psql -U postgres -d apps < 02_migrate_schema.sql
 --
 -- This is reversible-ish: ALTER TABLE ... SET SCHEMA just relocates the table,
 -- it does not touch the rows. A verified CSV/Parquet backup already exists under
@@ -18,11 +18,10 @@ ALTER TABLE IF EXISTS public.habit_completions  SET SCHEMA load_log;
 ALTER TABLE IF EXISTS public.exercises          SET SCHEMA load_log;
 ALTER TABLE IF EXISTS public.workout_sets       SET SCHEMA load_log;
 
--- CRITICAL: make unqualified table references resolve to load_log first. The
--- TUI/db.py still issue unqualified `CREATE TABLE IF NOT EXISTS` + queries; without
--- this they would recreate empty tables in `public` and silently diverge from the
--- real data now living in load_log. Scoped to the load_log database only.
-ALTER DATABASE load_log SET search_path = load_log, public;
+-- Make unqualified references resolve to the load_log schema first, so Alembic
+-- and the scripts/ tooling stay pointed at the right tables. Scoped to the
+-- shared `apps` database only.
+ALTER DATABASE apps SET search_path = load_log, public;
 
 -- Grant the app role access to the DATA tables only (NOT the future users table,
 -- which holds password hashes and must never be exposed through PostgREST).

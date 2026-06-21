@@ -1,7 +1,7 @@
 -- 03_post_migrate.sql — run AFTER the load-log-streamlit container has started
 -- once and Alembic has created the load_log.users table (migration 0002).
 --
---   docker exec -i postgres psql -U "$POSTGRES_USER" -d load_log < 03_post_migrate.sql
+--   docker exec -i postgres psql -U postgres -d apps < 03_post_migrate.sql
 --
 -- Purpose: make sure the credentials table is NEVER reachable through PostgREST.
 -- The auth service reads it directly as the postgres superuser, so it does not

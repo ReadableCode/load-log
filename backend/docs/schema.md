@@ -1,6 +1,6 @@
 # Database Schema
 
-Database: `load_log`
+Database: `apps` · schema: `load_log`
 
 Tables live in the `load_log` schema and are created/evolved via Alembic
 migrations (`backend/alembic/versions/`). The DDL below is the canonical shape.

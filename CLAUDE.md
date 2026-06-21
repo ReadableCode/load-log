@@ -75,7 +75,7 @@ cd backend && uv run alembic upgrade head
 - Tables are exposed at the schema root (e.g. `/workout_sets`) because
   `PGRST_DB_SCHEMAS=load_log` makes `load_log` the default schema — paths are
   NOT prefixed with `/load_log`.
-- Schema lives in the `load_log` schema of the `load_log` database. See
+- Schema lives in the `load_log` schema of the shared `apps` database. See
   `backend/docs/schema.md`. Schema changes go through **Alembic** migrations
   (`backend/alembic/versions/`), applied on container startup by
   `docker-entrypoint.sh`.

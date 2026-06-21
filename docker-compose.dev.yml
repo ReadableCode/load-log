@@ -19,7 +19,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: localdev
-      POSTGRES_DB: load_log
+      POSTGRES_DB: apps
     volumes:
       - ./deploy/dev_init.sql:/docker-entrypoint-initdb.d/dev_init.sql:ro
     ports:
@@ -29,7 +29,7 @@ services:
     image: postgrest/postgrest:latest
     container_name: load_log_dev_postgrest
     environment:
-      PGRST_DB_URI: postgres://postgrest_authenticator:localdev@postgres:5432/load_log
+      PGRST_DB_URI: postgres://postgrest_authenticator:localdev@postgres:5432/apps
       PGRST_DB_SCHEMAS: load_log
       PGRST_DB_ANON_ROLE: web_anon
       PGRST_JWT_SECRET: localdevsecret_at_least_32_chars_long
@@ -47,7 +47,7 @@ services:
     environment:
       POSTGRES_URL: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: load_log
+      POSTGRES_DB: apps
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: localdev
       JWT_SECRET: localdevsecret_at_least_32_chars_long
@@ -75,7 +75,7 @@ services:
       # For the startup `alembic upgrade head`:
       POSTGRES_URL: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: load_log
+      POSTGRES_DB: apps
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: localdev
     ports:

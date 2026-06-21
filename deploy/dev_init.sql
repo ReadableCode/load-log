@@ -10,7 +10,7 @@ GRANT web_anon      TO postgrest_authenticator;
 GRANT load_log_user TO postgrest_authenticator;
 
 CREATE SCHEMA IF NOT EXISTS load_log;
-ALTER DATABASE load_log SET search_path = load_log, public;
+ALTER DATABASE apps SET search_path = load_log, public;
 
 GRANT USAGE ON SCHEMA load_log TO load_log_user;
 -- Dev convenience: auto-grant the app role on tables Alembic creates later.

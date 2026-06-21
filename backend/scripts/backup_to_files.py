@@ -38,7 +38,7 @@ def load_pg_env() -> dict:
         key = key.strip()
         if key in wanted:
             out[key] = val.strip().strip('"').strip("'")
-    out.setdefault("POSTGRES_DB", "load_log")
+    out.setdefault("POSTGRES_DB", "apps")
     out.setdefault("POSTGRES_PORT", "5432")
     missing = [k for k in ("POSTGRES_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
                if k not in out]

@@ -79,7 +79,7 @@ interfaces only call its functions — they contain no SQL and no DB driver.
 
 ## Database
 
-- Database `load_log`; app tables live in the `load_log` **schema**
+- Shared database `apps`; load-log's tables live in the `load_log` **schema**
   (`habits`, `habit_completions`, `exercises`, `workout_sets`) plus
   `load_log.users` (credentials, never exposed via PostgREST).
 - Roles: `postgrest_authenticator` (login role PostgREST uses), `web_anon`
@@ -87,7 +87,7 @@ interfaces only call its functions — they contain no SQL and no DB driver.
 - Schema changes go through Alembic (`alembic/versions/`), applied on container
   startup by `docker-entrypoint.sh`. Baseline `0001` is idempotent
   (`CREATE ... IF NOT EXISTS`); `0002` adds the users table.
-- `ALTER DATABASE load_log SET search_path = load_log, public` keeps any
+- `ALTER DATABASE apps SET search_path = load_log, public` keeps any
   direct-DB tooling (Alembic, scripts) pointed at the right tables.
 
 ## Running Locally
@@ -114,7 +114,7 @@ APP_ENV=development
 # Alembic + scripts (direct DB) only:
 POSTGRES_URL=<shared-postgres-host>
 POSTGRES_PORT=5432
-POSTGRES_DB=load_log
+POSTGRES_DB=apps
 POSTGRES_USER=...
 POSTGRES_PASSWORD=...
 

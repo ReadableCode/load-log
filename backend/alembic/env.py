@@ -24,7 +24,7 @@ POSTGRES_USER = os.environ.get("POSTGRES_USER", "")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 POSTGRES_URL = os.environ.get("POSTGRES_URL", "localhost")
 POSTGRES_PORT = os.environ.get("POSTGRES_PORT", "5432")
-POSTGRES_DB = os.environ.get("POSTGRES_DB", "load_log")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "apps")
 
 db_url = (
     f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
