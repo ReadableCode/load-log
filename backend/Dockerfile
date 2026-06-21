@@ -15,6 +15,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 
 # Alembic config + migrations. The entrypoint runs `alembic upgrade head`
 # before whatever CMD/compose-command is passed, so migrations apply first for
