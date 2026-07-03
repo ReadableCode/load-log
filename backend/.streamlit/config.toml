@@ -1,17 +1,19 @@
 # Streamlit theme for the Load Log web app.
-# Dark, single-accent palette; charts and custom CSS in src/web/app.py use the
-# same tokens (see THEME constants there) so the whole page reads as one system.
+# Navy terminal look mirroring the readablecode portfolio site: monospace type,
+# green prompt accent, amber highlights. Charts and custom CSS in
+# src/web/app.py use the same tokens (see the THEME constants there) so the
+# whole page reads as one system.
 
 [theme]
 base = "dark"
-primaryColor = "#3987e5"
-backgroundColor = "#0d0d0d"
-secondaryBackgroundColor = "#1a1a19"
-textColor = "#fafaf7"
-linkColor = "#86b6ef"
-borderColor = "#2c2c2a"
-baseRadius = "0.75rem"
-font = "sans-serif"
+primaryColor = "#2ea043"
+backgroundColor = "#0d1420"
+secondaryBackgroundColor = "#121b2a"
+textColor = "#dbe4f0"
+linkColor = "#56d364"
+borderColor = "#243247"
+baseRadius = "0.5rem"
+font = "monospace"
 
 [browser]
 gatherUsageStats = false

@@ -32,23 +32,28 @@ st.set_page_config(page_title="Load Log", page_icon="🏋", layout="wide")
 # One place for every color the app uses. `.streamlit/config.toml` carries the
 # same values for Streamlit's own chrome; the Altair theme and injected CSS
 # below consume these, so charts, tiles, and widgets read as one system.
-BG = "#0d0d0d"  # page plane
-SURFACE = "#141413"  # cards / sidebar / forms
-INK = "#fafaf7"
-INK_SECONDARY = "#c3c2b7"
-INK_MUTED = "#898781"
-GRID = "#2c2c2a"
-AXIS = "#383835"
-ACCENT = "#3987e5"  # primary series blue
-ACCENT_SOFT = "#86b6ef"  # light blue for text accents (eyebrow, brand)
-SERIES_AQUA = "#199e70"  # second chart series (validated CVD-safe next to ACCENT)
-TODAY_RING = "#ff8c00"
+# The look mirrors the readablecode portfolio site: navy terminal surfaces,
+# monospace type, green prompt accent, amber highlights, `// section` headers.
+BG = "#0d1420"  # page plane (navy)
+SURFACE = "#121b2a"  # cards / sidebar / forms
+SURFACE_2 = "#182333"  # terminal title bar
+BORDER = "rgba(148, 163, 184, 0.16)"
+INK = "#dbe4f0"
+INK_SECONDARY = "#9fb0c3"
+INK_MUTED = "#7d8b9e"
+GRID = "#1c2739"
+AXIS = "#2a3850"
+ACCENT = "#2ea043"  # primary chart/widget green
+ACCENT_BRIGHT = "#56d364"  # text green: prompt glyph, // slashes, brand
+AMBER = "#b8860b"  # second chart series (validated CVD-safe next to ACCENT)
+AMBER_BRIGHT = "#e3b341"  # amber text highlights + today ring
+TODAY_RING = AMBER_BRIGHT
 
-FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
+FONT = 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace'
 
 # GitHub-dark activity ramp for the heatmaps
-GH_EMPTY = "#242424"
-GH_FUTURE = "#161616"
+GH_EMPTY = "#161b22"
+GH_FUTURE = "#10151d"
 GH_DONE = "#26a641"
 GH_RAMP = ["#0e4429", "#006d32", "#26a641", "#39d353"]
 
@@ -82,91 +87,125 @@ def _load_log_dark() -> alt.theme.ThemeConfig:
 
 
 def _inject_css() -> None:
-    """Global CSS: page glow, stat tiles, headers, and card-styled widgets."""
+    """Global CSS: terminal-style headers, stat pills, and card-styled widgets."""
     st.markdown(
         f"""
         <style>
-        .stApp {{
-            background:
-                radial-gradient(1100px 500px at 18% -12%, #14202f 0%, rgba(13, 13, 13, 0) 60%),
-                {BG};
-        }}
-        h1, h2, h3 {{ letter-spacing: -0.02em; }}
+        .stApp {{ background: {BG}; }}
         [data-testid="stHeader"] {{ background: transparent; }}
+        h1, h2, h3 {{ letter-spacing: -0.01em; }}
 
         [data-testid="stSidebar"] {{
             background: {SURFACE};
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            border-right: 1px solid {BORDER};
         }}
         [data-testid="stExpander"] {{
             background: {SURFACE};
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 12px;
+            border: 1px solid {BORDER};
+            border-radius: 8px;
         }}
         [data-testid="stForm"] {{
             background: {SURFACE};
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 12px;
+            border: 1px solid {BORDER};
+            border-radius: 8px;
         }}
 
         .ll-brand {{
-            font-size: 1.05rem;
+            font-size: 1.02rem;
             font-weight: 700;
             color: {INK};
             padding: 0.25rem 0 0.5rem;
         }}
-        .ll-brand span {{ color: {ACCENT_SOFT}; }}
+        .ll-brand .ll-prompt {{ color: {ACCENT_BRIGHT}; margin-right: 0.4rem; }}
 
-        .ll-header {{ margin: 0 0 0.9rem 0; }}
-        .ll-eyebrow {{
-            font-size: 0.68rem;
-            text-transform: uppercase;
-            letter-spacing: 0.18em;
-            color: {ACCENT_SOFT};
-            font-weight: 700;
+        .ll-header {{
+            margin: 0 0 1rem;
+            padding-bottom: 0.6rem;
+            border-bottom: 1px solid {BORDER};
         }}
-        .ll-header h1 {{ font-size: 1.9rem; margin: 0.05rem 0 0.15rem; }}
-        .ll-header p {{ color: {INK_MUTED}; margin: 0; font-size: 0.92rem; }}
+        .ll-header h1 {{ font-size: 1.55rem; margin: 0 0 0.25rem; font-weight: 700; }}
+        .ll-header h1 .ll-sl,
+        .ll-section h3 .ll-sl {{ color: {ACCENT_BRIGHT}; }}
+        .ll-header p {{ color: {INK_MUTED}; margin: 0; font-size: 0.88rem; }}
+
+        .ll-section {{
+            margin: 0.4rem 0 0.9rem;
+            padding-bottom: 0.45rem;
+            border-bottom: 1px solid {BORDER};
+        }}
+        .ll-section h3 {{ font-size: 1.15rem; margin: 0; font-weight: 700; }}
 
         .ll-tiles {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
-            gap: 0.75rem;
+            gap: 0.7rem;
             margin: 0.25rem 0 1rem;
         }}
         .ll-tile {{
-            background: linear-gradient(180deg, #1d1d1c, #161615);
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 14px;
-            padding: 0.8rem 1rem 0.7rem;
+            background: {SURFACE};
+            border: 1px solid {BORDER};
+            border-radius: 8px;
+            padding: 0.7rem 0.9rem 0.6rem;
         }}
         .ll-tile .ll-label {{
-            font-size: 0.68rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
+            font-size: 0.74rem;
             color: {INK_MUTED};
-            font-weight: 600;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }}
+        .ll-tile .ll-label::before {{
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: {ACCENT_BRIGHT};
+            box-shadow: 0 0 6px rgba(86, 211, 100, 0.65);
+            flex: none;
         }}
         .ll-tile .ll-value {{
-            font-size: 1.5rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: {INK};
             font-variant-numeric: tabular-nums;
-            line-height: 1.15;
+            line-height: 1.2;
         }}
         .ll-tile .ll-value span {{
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             color: {INK_MUTED};
             font-weight: 500;
             margin-left: 0.15rem;
         }}
-        .ll-tile .ll-sub {{ font-size: 0.74rem; color: {INK_MUTED}; margin-top: 0.2rem; }}
+        .ll-tile .ll-sub {{ font-size: 0.72rem; color: {INK_MUTED}; margin-top: 0.2rem; }}
 
-        .ll-login-head {{ text-align: center; margin: 2.5rem 0 1rem; }}
-        .ll-login-head .ll-logo {{ font-size: 2.4rem; }}
-        .ll-login-head h1 {{ font-size: 1.9rem; margin: 0.2rem 0 0.3rem; }}
-        .ll-login-head p {{ color: {INK_MUTED}; margin: 0; }}
+        .ll-term {{
+            border: 1px solid {BORDER};
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 2.2rem 0 1rem;
+        }}
+        .ll-term-bar {{
+            background: {SURFACE_2};
+            padding: 0.55rem 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }}
+        .ll-term-bar .d {{ width: 11px; height: 11px; border-radius: 50%; }}
+        .ll-term-bar .d.r {{ background: #f87171; }}
+        .ll-term-bar .d.y {{ background: #fbbf24; }}
+        .ll-term-bar .d.g {{ background: #34d399; }}
+        .ll-term-title {{ color: {INK_MUTED}; font-size: 0.8rem; margin-left: 0.4rem; }}
+        .ll-term-body {{
+            background: {SURFACE};
+            padding: 1rem 1.1rem 1.3rem;
+            font-size: 0.9rem;
+            color: {INK_SECONDARY};
+            line-height: 1.8;
+        }}
+        .ll-term-body .ll-prompt {{ color: {ACCENT_BRIGHT}; }}
+        .ll-term-body .hl {{ color: {AMBER_BRIGHT}; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -175,8 +214,15 @@ def _inject_css() -> None:
 
 def page_header(title: str, subtitle: str) -> None:
     st.markdown(
-        f'<div class="ll-header"><span class="ll-eyebrow">Load Log</span>'
-        f"<h1>{title}</h1><p>{subtitle}</p></div>",
+        f'<div class="ll-header"><h1><span class="ll-sl">//</span> {title}</h1>'
+        f"<p>{subtitle}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def section_header(title: str) -> None:
+    st.markdown(
+        f'<div class="ll-section"><h3><span class="ll-sl">//</span> {title}</h3></div>',
         unsafe_allow_html=True,
     )
 
@@ -210,11 +256,18 @@ def require_login() -> bool:
     if st.session_state.get("jwt"):
         return True
 
-    _, mid, _ = st.columns([1, 1.1, 1])
+    _, mid, _ = st.columns([1, 1.2, 1])
     with mid:
         st.markdown(
-            '<div class="ll-login-head"><div class="ll-logo">🏋</div>'
-            "<h1>Load Log</h1><p>Habits, workouts, and progressive overload.</p></div>",
+            '<div class="ll-term">'
+            '<div class="ll-term-bar"><span class="d r"></span><span class="d y"></span>'
+            '<span class="d g"></span>'
+            '<span class="ll-term-title">user@load-log: ~</span></div>'
+            '<div class="ll-term-body">'
+            'load-log <span class="ll-prompt">//</span> personal health terminal<br>'
+            "habits · workouts · progressive overload<br>"
+            '<span class="ll-prompt">❯</span> <span class="hl">log in</span> to continue'
+            "</div></div>",
             unsafe_allow_html=True,
         )
         with st.form("login_form"):
@@ -350,19 +403,19 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
 def page_habits():
     page_header(
-        "Daily Habits", "Keep the streaks alive — click any cell to toggle a day."
+        "daily habits", "keep the streaks alive — click any cell to toggle a day"
     )
     token = _token()
 
     with st.sidebar:
-        st.subheader("Add Habit")
+        st.subheader("add habit")
         new_name = st.text_input("Name", key="new_habit_name")
         if st.button("Add", key="add_habit_btn") and new_name.strip():
             api_client.add_habit(token, new_name.strip())
             st.rerun()
 
         st.divider()
-        st.subheader("Your Habits")
+        st.subheader("your habits")
         for h in api_client.get_all_habits(token):
             cols = st.columns([4, 1])
             cols[0].write(h["name"])
@@ -540,8 +593,8 @@ def build_volume_chart(daily: pd.DataFrame) -> alt.LayerChart:
         color=alt.Gradient(
             gradient="linear",
             stops=[
-                alt.GradientStop(color="#3987e500", offset=0),
-                alt.GradientStop(color="#3987e566", offset=1),
+                alt.GradientStop(color="#2ea04300", offset=0),
+                alt.GradientStop(color="#2ea04355", offset=1),
             ],
             x1=1,
             x2=1,
@@ -568,7 +621,7 @@ def build_e1rm_chart(sets_df: pd.DataFrame, daily: pd.DataFrame) -> alt.LayerCha
     color = alt.Color(
         "series:N",
         title=None,
-        scale=alt.Scale(domain=["Each set", "Daily best"], range=[SERIES_AQUA, ACCENT]),
+        scale=alt.Scale(domain=["Each set", "Daily best"], range=[AMBER, ACCENT]),
         legend=alt.Legend(orient="top", direction="horizontal"),
     )
 
@@ -610,8 +663,8 @@ def build_e1rm_chart(sets_df: pd.DataFrame, daily: pd.DataFrame) -> alt.LayerCha
 
 def page_workouts():
     page_header(
-        "Workouts",
-        "Log sets, watch total volume accumulate, and track strength via estimated 1RM.",
+        "workouts",
+        "log sets, watch total volume accumulate, track strength via estimated 1RM",
     )
     token = _token()
 
@@ -654,19 +707,19 @@ def _day_stat_tiles(picked: date, sets: list[dict], volumes: dict[date, float]) 
     stat_tiles(
         [
             (
-                "Day volume",
+                "day volume",
                 f"{day_volume:,.0f} <span>lbs</span>",
                 f"{picked:%a %b %-d}",
             ),
             (
-                "Sets logged",
+                "sets logged",
                 f"{len(sets)}",
                 f"{n_exercises} exercise{'s' if n_exercises != 1 else ''}",
             ),
             (
-                "Best est. 1RM",
+                "best est. 1RM",
                 f"{best_e1rm:,.0f} <span>lbs</span>" if best_e1rm else "—",
-                "Epley, best set of the day",
+                "epley, best set of the day",
             ),
             (
                 "7-day volume",
@@ -827,7 +880,7 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
 
 def _render_history_section() -> None:
     token = _token()
-    st.subheader("Exercise History")
+    section_header("exercise history")
     exercises = api_client.get_all_exercises(token)
     if not exercises:
         return
@@ -859,25 +912,25 @@ def _render_history_section() -> None:
     stat_tiles(
         [
             (
-                "Best est. 1RM",
+                "best est. 1RM",
                 f"{best_row['best_e1rm']:,.0f} <span>lbs</span>",
                 f"{best_row['workout_date']:%b %-d, %Y}",
             ),
             (
-                "Latest est. 1RM",
+                "latest est. 1RM",
                 f"{latest['best_e1rm']:,.0f} <span>lbs</span>",
                 f"{latest['workout_date']:%b %-d, %Y}",
             ),
             (
-                "Best day volume",
+                "best day volume",
                 f"{best_vol['volume_lbs']:,.0f} <span>lbs</span>",
                 f"{best_vol['workout_date']:%b %-d, %Y}",
             ),
-            ("Sessions", f"{len(daily)}", f"{len(df)} sets in the last year"),
+            ("sessions", f"{len(daily)}", f"{len(df)} sets in the last year"),
         ]
     )
 
-    tab_volume, tab_e1rm = st.tabs(["Total volume", "Estimated 1RM"])
+    tab_volume, tab_e1rm = st.tabs(["total volume", "estimated 1RM"])
     with tab_volume:
         st.altair_chart(build_volume_chart(daily), width="stretch", theme=None)
         st.caption("Total volume = Σ reps × weight across every set that day.")
@@ -888,7 +941,7 @@ def _render_history_section() -> None:
             "each day's best set. Estimates get rough above ~12 reps."
         )
 
-    with st.expander("All sets (last year)"):
+    with st.expander("all sets (last year)"):
         table = pd.DataFrame(
             {
                 "Date": df["workout_date"].dt.date,
@@ -906,14 +959,14 @@ def _render_history_section() -> None:
 # Router #
 
 PAGES = {
-    "Habits": page_habits,
-    "Workouts": page_workouts,
+    "habits": page_habits,
+    "workouts": page_workouts,
 }
 
 if require_login():
     with st.sidebar:
         st.markdown(
-            '<div class="ll-brand">🏋&nbsp; Load <span>Log</span></div>',
+            '<div class="ll-brand"><span class="ll-prompt">❯</span>load-log</div>',
             unsafe_allow_html=True,
         )
         choice = st.sidebar.radio(
