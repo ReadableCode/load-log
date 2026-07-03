@@ -27,6 +27,174 @@ st.set_page_config(page_title="Load Log", page_icon="🏋", layout="wide")
 
 
 # %%
+# Theme tokens #
+
+# One place for every color the app uses. `.streamlit/config.toml` carries the
+# same values for Streamlit's own chrome; the Altair theme and injected CSS
+# below consume these, so charts, tiles, and widgets read as one system.
+BG = "#0d0d0d"  # page plane
+SURFACE = "#141413"  # cards / sidebar / forms
+INK = "#fafaf7"
+INK_SECONDARY = "#c3c2b7"
+INK_MUTED = "#898781"
+GRID = "#2c2c2a"
+AXIS = "#383835"
+ACCENT = "#3987e5"  # primary series blue
+ACCENT_SOFT = "#86b6ef"  # light blue for text accents (eyebrow, brand)
+SERIES_AQUA = "#199e70"  # second chart series (validated CVD-safe next to ACCENT)
+TODAY_RING = "#ff8c00"
+
+FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
+
+# GitHub-dark activity ramp for the heatmaps
+GH_EMPTY = "#242424"
+GH_FUTURE = "#161616"
+GH_DONE = "#26a641"
+GH_RAMP = ["#0e4429", "#006d32", "#26a641", "#39d353"]
+
+
+@alt.theme.register("load_log_dark", enable=True)
+def _load_log_dark() -> alt.theme.ThemeConfig:
+    """Dark Altair theme matching the app palette. Charts are rendered with
+    theme=None on st.altair_chart so this (not Streamlit's default) applies."""
+    return {
+        "config": {
+            "background": "transparent",
+            "font": FONT,
+            "view": {"stroke": None},
+            "axis": {
+                "labelColor": INK_MUTED,
+                "titleColor": INK_SECONDARY,
+                "gridColor": GRID,
+                "domainColor": AXIS,
+                "tickColor": AXIS,
+                "labelFontSize": 11,
+                "titleFontSize": 12,
+                "titleFontWeight": 500,
+            },
+            "legend": {
+                "labelColor": INK_SECONDARY,
+                "titleColor": INK_MUTED,
+                "labelFontSize": 12,
+            },
+        }
+    }
+
+
+def _inject_css() -> None:
+    """Global CSS: page glow, stat tiles, headers, and card-styled widgets."""
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background:
+                radial-gradient(1100px 500px at 18% -12%, #14202f 0%, rgba(13, 13, 13, 0) 60%),
+                {BG};
+        }}
+        h1, h2, h3 {{ letter-spacing: -0.02em; }}
+        [data-testid="stHeader"] {{ background: transparent; }}
+
+        [data-testid="stSidebar"] {{
+            background: {SURFACE};
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }}
+        [data-testid="stExpander"] {{
+            background: {SURFACE};
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+        }}
+        [data-testid="stForm"] {{
+            background: {SURFACE};
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+        }}
+
+        .ll-brand {{
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: {INK};
+            padding: 0.25rem 0 0.5rem;
+        }}
+        .ll-brand span {{ color: {ACCENT_SOFT}; }}
+
+        .ll-header {{ margin: 0 0 0.9rem 0; }}
+        .ll-eyebrow {{
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: {ACCENT_SOFT};
+            font-weight: 700;
+        }}
+        .ll-header h1 {{ font-size: 1.9rem; margin: 0.05rem 0 0.15rem; }}
+        .ll-header p {{ color: {INK_MUTED}; margin: 0; font-size: 0.92rem; }}
+
+        .ll-tiles {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+            gap: 0.75rem;
+            margin: 0.25rem 0 1rem;
+        }}
+        .ll-tile {{
+            background: linear-gradient(180deg, #1d1d1c, #161615);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 14px;
+            padding: 0.8rem 1rem 0.7rem;
+        }}
+        .ll-tile .ll-label {{
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: {INK_MUTED};
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }}
+        .ll-tile .ll-value {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: {INK};
+            font-variant-numeric: tabular-nums;
+            line-height: 1.15;
+        }}
+        .ll-tile .ll-value span {{
+            font-size: 0.8rem;
+            color: {INK_MUTED};
+            font-weight: 500;
+            margin-left: 0.15rem;
+        }}
+        .ll-tile .ll-sub {{ font-size: 0.74rem; color: {INK_MUTED}; margin-top: 0.2rem; }}
+
+        .ll-login-head {{ text-align: center; margin: 2.5rem 0 1rem; }}
+        .ll-login-head .ll-logo {{ font-size: 2.4rem; }}
+        .ll-login-head h1 {{ font-size: 1.9rem; margin: 0.2rem 0 0.3rem; }}
+        .ll-login-head p {{ color: {INK_MUTED}; margin: 0; }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def page_header(title: str, subtitle: str) -> None:
+    st.markdown(
+        f'<div class="ll-header"><span class="ll-eyebrow">Load Log</span>'
+        f"<h1>{title}</h1><p>{subtitle}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def stat_tiles(tiles: list[tuple[str, str, str]]) -> None:
+    """Render a row of stat tiles from (label, value_html, sub) triples."""
+    cells = "".join(
+        f'<div class="ll-tile"><div class="ll-label">{label}</div>'
+        f'<div class="ll-value">{value}</div><div class="ll-sub">{sub}</div></div>'
+        for label, value, sub in tiles
+    )
+    st.markdown(f'<div class="ll-tiles">{cells}</div>', unsafe_allow_html=True)
+
+
+_inject_css()
+
+
+# %%
 # Auth #
 
 
@@ -42,23 +210,28 @@ def require_login() -> bool:
     if st.session_state.get("jwt"):
         return True
 
-    st.title("Load Log")
-    st.caption("Sign in to continue.")
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in", type="primary")
-    if submitted:
-        try:
-            token = api_client.login(username, password)
-        except requests.HTTPError:
-            st.error("Invalid username or password.")
-            return False
-        except requests.RequestException:
-            st.error("Could not reach the auth service. Try again shortly.")
-            return False
-        st.session_state["jwt"] = token
-        st.rerun()
+    _, mid, _ = st.columns([1, 1.1, 1])
+    with mid:
+        st.markdown(
+            '<div class="ll-login-head"><div class="ll-logo">🏋</div>'
+            "<h1>Load Log</h1><p>Habits, workouts, and progressive overload.</p></div>",
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log in", type="primary", width="stretch")
+        if submitted:
+            try:
+                token = api_client.login(username, password)
+            except requests.HTTPError:
+                st.error("Invalid username or password.")
+                return False
+            except requests.RequestException:
+                st.error("Could not reach the auth service. Try again shortly.")
+                return False
+            st.session_state["jwt"] = token
+            st.rerun()
     return False
 
 
@@ -80,11 +253,22 @@ def browser_today() -> date:
 
 
 # %%
-# Heatmap #
+# 1RM #
 
-GH_EMPTY = "#ebedf0"
-GH_DONE = "#216e39"
-GH_FUTURE = "#f6f8fa"
+
+def epley_1rm(weight_lbs: float, reps: int) -> float:
+    """Estimated one-rep max via the Epley formula: weight × (1 + reps/30).
+
+    A single rep IS the 1RM; the estimate gets rougher as reps climb past ~12,
+    which the UI notes next to the chart.
+    """
+    if reps <= 1:
+        return weight_lbs
+    return weight_lbs * (1.0 + reps / 30.0)
+
+
+# %%
+# Heatmap #
 
 
 def _heatmap_dataframe(completions: list[date], today: date) -> pd.DataFrame:
@@ -102,7 +286,9 @@ def _heatmap_dataframe(completions: list[date], today: date) -> pd.DataFrame:
     df["is_today"] = df["date"].dt.date == today
 
     df["color"] = df.apply(
-        lambda r: GH_DONE if r["completed"] else (GH_FUTURE if r["future"] else GH_EMPTY),
+        lambda r: (
+            GH_DONE if r["completed"] else (GH_FUTURE if r["future"] else GH_EMPTY)
+        ),
         axis=1,
     )
     df["date_str"] = df["date"].dt.strftime("%Y-%m-%d")
@@ -129,13 +315,13 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
     rects = (
         alt.Chart(df)
-        .mark_rect(stroke="white", strokeWidth=1, cornerRadius=2)
+        .mark_rect(stroke=BG, strokeWidth=1, cornerRadius=2)
         .encode(
             x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
             y=alt.Y("dow:O", sort=dow_order, title=None),
             color=alt.Color("color:N", scale=None, legend=None),
             stroke=alt.condition(
-                "datum.is_today", alt.value("#ff8c00"), alt.value("white")
+                "datum.is_today", alt.value(TODAY_RING), alt.value(BG)
             ),
             strokeWidth=alt.condition("datum.is_today", alt.value(2), alt.value(1)),
             opacity=alt.condition(select_day, alt.value(1.0), alt.value(0.85)),
@@ -150,7 +336,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
     month_labels = (
         alt.Chart(week_starts)
-        .mark_text(align="left", baseline="bottom", fontSize=11, color="#555")
+        .mark_text(align="left", baseline="bottom", fontSize=11, color=INK_MUTED)
         .encode(x=alt.X("week:O", axis=None), text="month_label:N")
         .properties(height=14)
     )
@@ -163,7 +349,9 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
 
 def page_habits():
-    st.header("Daily Habits")
+    page_header(
+        "Daily Habits", "Keep the streaks alive — click any cell to toggle a day."
+    )
     token = _token()
 
     with st.sidebar:
@@ -196,7 +384,8 @@ def page_habits():
 
             event = st.altair_chart(
                 build_heatmap(completions, today),
-                use_container_width=True,
+                width="stretch",
+                theme=None,
                 on_select="rerun",
                 key=f"heatmap_{h['id']}",
             )
@@ -210,7 +399,9 @@ def page_habits():
             )
 
             cols = st.columns([1, 1])
-            toggle_label = f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
+            toggle_label = (
+                f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
+            )
             if cols[0].button(toggle_label, key=f"toggle_{h['id']}", type="primary"):
                 api_client.toggle_completion(_token(), h["id"], picked)
                 st.rerun()
@@ -272,7 +463,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
 
     rects = (
         alt.Chart(df)
-        .mark_rect(stroke="white", strokeWidth=1, cornerRadius=2)
+        .mark_rect(stroke=BG, strokeWidth=1, cornerRadius=2)
         .encode(
             x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
             y=alt.Y("dow:O", sort=dow_order, title=None),
@@ -280,20 +471,14 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
                 "volume_or_null:Q",
                 title="Volume (lbs)",
                 scale=alt.Scale(
-                    range=[
-                        GH_EMPTY,
-                        "#9be9a8",
-                        "#40c463",
-                        "#30a14e",
-                        GH_DONE,
-                    ],
+                    range=[GH_EMPTY] + GH_RAMP,
                     type="threshold",
                     domain=_volume_thresholds(volumes),
                 ),
-                legend=alt.Legend(orient="bottom"),
+                legend=alt.Legend(orient="bottom", format=",.0f"),
             ),
             stroke=alt.condition(
-                "datum.is_today", alt.value("#ff8c00"), alt.value("white")
+                "datum.is_today", alt.value(TODAY_RING), alt.value(BG)
             ),
             strokeWidth=alt.condition("datum.is_today", alt.value(2), alt.value(1)),
             opacity=alt.condition(select_day, alt.value(1.0), alt.value(0.9)),
@@ -308,7 +493,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
 
     month_labels = (
         alt.Chart(week_starts)
-        .mark_text(align="left", baseline="bottom", fontSize=11, color="#555")
+        .mark_text(align="left", baseline="bottom", fontSize=11, color=INK_MUTED)
         .encode(x=alt.X("week:O", axis=None), text="month_label:N")
         .properties(height=14)
     )
@@ -331,11 +516,103 @@ def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
 
 
 # %%
+# History Charts #
+
+
+def build_volume_chart(daily: pd.DataFrame) -> alt.LayerChart:
+    """Total volume (sum of reps × weight) per workout day, as an area+line trend."""
+    x = alt.X(
+        "workout_date:T",
+        title=None,
+        axis=alt.Axis(format="%b %-d", grid=False, labelAngle=0),
+    )
+    y = alt.Y("volume_lbs:Q", title="Total volume (lbs)")
+    tooltip = [
+        alt.Tooltip("workout_date:T", title="Date", format="%a %b %-d, %Y"),
+        alt.Tooltip("volume_lbs:Q", title="Volume (lbs)", format=",.0f"),
+        alt.Tooltip("sets:Q", title="Sets"),
+        alt.Tooltip("top_weight:Q", title="Top weight (lbs)", format=",.1f"),
+    ]
+
+    base = alt.Chart(daily).encode(x=x)
+    area = base.mark_area(
+        line=False,
+        color=alt.Gradient(
+            gradient="linear",
+            stops=[
+                alt.GradientStop(color="#3987e500", offset=0),
+                alt.GradientStop(color="#3987e566", offset=1),
+            ],
+            x1=1,
+            x2=1,
+            y1=1,
+            y2=0,
+        ),
+    ).encode(y=y)
+    line = base.mark_line(color=ACCENT, strokeWidth=2).encode(y=y)
+    points = base.mark_circle(color=ACCENT, size=70).encode(y=y, tooltip=tooltip)
+    return (area + line + points).properties(height=300)
+
+
+def build_e1rm_chart(sets_df: pd.DataFrame, daily: pd.DataFrame) -> alt.LayerChart:
+    """Estimated 1RM over time: every set as a soft point, daily best as a line."""
+    sets_df = sets_df.assign(series="Each set")
+    daily = daily.assign(series="Daily best")
+
+    x = alt.X(
+        "workout_date:T",
+        title=None,
+        axis=alt.Axis(format="%b %-d", grid=False, labelAngle=0),
+    )
+    y_scale = alt.Scale(zero=False)
+    color = alt.Color(
+        "series:N",
+        title=None,
+        scale=alt.Scale(domain=["Each set", "Daily best"], range=[SERIES_AQUA, ACCENT]),
+        legend=alt.Legend(orient="top", direction="horizontal"),
+    )
+
+    points = (
+        alt.Chart(sets_df)
+        .mark_circle(size=55, opacity=0.45)
+        .encode(
+            x=x,
+            y=alt.Y("e1rm_lbs:Q", title="Estimated 1RM (lbs)", scale=y_scale),
+            color=color,
+            tooltip=[
+                alt.Tooltip("workout_date:T", title="Date", format="%a %b %-d, %Y"),
+                alt.Tooltip("set_number:Q", title="Set"),
+                alt.Tooltip("reps:Q", title="Reps"),
+                alt.Tooltip("weight_lbs:Q", title="Weight (lbs)", format=",.1f"),
+                alt.Tooltip("e1rm_lbs:Q", title="Est. 1RM (lbs)", format=",.1f"),
+            ],
+        )
+    )
+    line = (
+        alt.Chart(daily)
+        .mark_line(strokeWidth=2.5, point=alt.OverlayMarkDef(size=60, filled=True))
+        .encode(
+            x=x,
+            y=alt.Y("best_e1rm:Q", title="Estimated 1RM (lbs)", scale=y_scale),
+            color=color,
+            tooltip=[
+                alt.Tooltip("workout_date:T", title="Date", format="%a %b %-d, %Y"),
+                alt.Tooltip("best_e1rm:Q", title="Best est. 1RM (lbs)", format=",.1f"),
+            ],
+        )
+    )
+    return (points + line).properties(height=300)
+
+
+# %%
 # Workouts Page #
 
 
 def page_workouts():
-    st.header("Workouts")
+    page_header(
+        "Workouts",
+        "Log sets, watch total volume accumulate, and track strength via estimated 1RM.",
+    )
     token = _token()
 
     today = browser_today()
@@ -343,7 +620,8 @@ def page_workouts():
 
     event = st.altair_chart(
         build_volume_heatmap(volumes, today),
-        use_container_width=True,
+        width="stretch",
+        theme=None,
         on_select="rerun",
         key="workout_heatmap",
     )
@@ -354,20 +632,53 @@ def page_workouts():
         picked = date.fromisoformat(picked)
     st.session_state["workout_picked_date"] = picked.isoformat()
 
-    today_volume = volumes.get(picked, 0.0)
+    sets = api_client.get_sets_for_date(token, picked)
+    _day_stat_tiles(picked, sets, volumes)
     st.caption(
-        f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — "
-        f"volume **{today_volume:,.0f} lbs**  •  click another cell to jump"
+        f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — click another heatmap cell to jump"
     )
 
-    _render_day(picked)
+    _render_day(picked, sets)
     st.divider()
     _render_history_section()
 
 
-def _render_day(picked: date) -> None:
+def _day_stat_tiles(picked: date, sets: list[dict], volumes: dict[date, float]) -> None:
+    day_volume = volumes.get(picked, 0.0)
+    week_volume = sum(volumes.get(picked - timedelta(days=i), 0.0) for i in range(7))
+    n_exercises = len({s["exercise_id"] for s in sets})
+    best_e1rm = max(
+        (epley_1rm(float(s["weight_lbs"]), int(s["reps"])) for s in sets),
+        default=0.0,
+    )
+    stat_tiles(
+        [
+            (
+                "Day volume",
+                f"{day_volume:,.0f} <span>lbs</span>",
+                f"{picked:%a %b %-d}",
+            ),
+            (
+                "Sets logged",
+                f"{len(sets)}",
+                f"{n_exercises} exercise{'s' if n_exercises != 1 else ''}",
+            ),
+            (
+                "Best est. 1RM",
+                f"{best_e1rm:,.0f} <span>lbs</span>" if best_e1rm else "—",
+                "Epley, best set of the day",
+            ),
+            (
+                "7-day volume",
+                f"{week_volume:,.0f} <span>lbs</span>",
+                "ending on selected day",
+            ),
+        ]
+    )
+
+
+def _render_day(picked: date, sets: list[dict]) -> None:
     token = _token()
-    sets = api_client.get_sets_for_date(token, picked)
 
     exercises = api_client.get_all_exercises(token)
     names = [e["name"] for e in exercises]
@@ -407,14 +718,19 @@ def _render_day(picked: date) -> None:
     else:
         default_reps, default_weight = 8, 135.0
 
-    with st.form(key=f"set_form_{picked.isoformat()}_{ex['id']}", clear_on_submit=False):
+    with st.form(
+        key=f"set_form_{picked.isoformat()}_{ex['id']}", clear_on_submit=False
+    ):
         c1, c2 = st.columns([1, 1])
         reps = c1.number_input(
             "Reps", min_value=1, max_value=100, value=int(default_reps), step=1
         )
         weight = c2.number_input(
-            "Weight (lbs)", min_value=0.0, max_value=2000.0,
-            value=float(default_weight), step=2.5,
+            "Weight (lbs)",
+            min_value=0.0,
+            max_value=2000.0,
+            value=float(default_weight),
+            step=2.5,
         )
         submitted = st.form_submit_button("Log set (or press Enter)", type="primary")
         if submitted:
@@ -434,7 +750,9 @@ def _render_day(picked: date) -> None:
             if suggestion is None:
                 st.write(f"• {s['exercise_name']}: build a baseline next time")
             else:
-                st.write(f"• {s['exercise_name']}: next session try **{suggestion:g} lbs**")
+                st.write(
+                    f"• {s['exercise_name']}: next session try **{suggestion:g} lbs**"
+                )
 
 
 def _show_set_table(picked: date, sets: list[dict]) -> None:
@@ -450,9 +768,7 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
         "**Sets logged on this day** — edit reps/weight in place, or click 🗑 to delete:"
     )
 
-    df = pd.DataFrame(sets)[
-        ["id", "exercise_name", "set_number", "reps", "weight_lbs"]
-    ]
+    df = pd.DataFrame(sets)[["id", "exercise_name", "set_number", "reps", "weight_lbs"]]
     edited = st.data_editor(
         df,
         column_config={
@@ -460,14 +776,23 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
             "exercise_name": st.column_config.TextColumn("Exercise", disabled=True),
             "set_number": st.column_config.NumberColumn("Set", disabled=True),
             "reps": st.column_config.NumberColumn(
-                "Reps", required=True, min_value=1, max_value=100, step=1, format="%d",
+                "Reps",
+                required=True,
+                min_value=1,
+                max_value=100,
+                step=1,
+                format="%d",
             ),
             "weight_lbs": st.column_config.NumberColumn(
-                "Weight (lbs)", required=True, min_value=0.0, max_value=2000.0, step=2.5,
+                "Weight (lbs)",
+                required=True,
+                min_value=0.0,
+                max_value=2000.0,
+                step=2.5,
             ),
         },
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         key=f"sets_editor_{picked.isoformat()}",
     )
@@ -485,10 +810,9 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
     orig_map = {int(r["id"]): r for _, r in df.iterrows()}
     new_map = {int(r["id"]): r for _, r in surviving.iterrows()}
     for sid in orig_ids & new_ids:
-        if (
-            int(orig_map[sid]["reps"]) != int(new_map[sid]["reps"])
-            or float(orig_map[sid]["weight_lbs"]) != float(new_map[sid]["weight_lbs"])
-        ):
+        if int(orig_map[sid]["reps"]) != int(new_map[sid]["reps"]) or float(
+            orig_map[sid]["weight_lbs"]
+        ) != float(new_map[sid]["weight_lbs"]):
             api_client.update_set(
                 token,
                 sid,
@@ -518,19 +842,64 @@ def _render_history_section() -> None:
         st.info("No logged sets yet.")
         return
 
-    max_per_day = df.groupby("workout_date")["weight_lbs"].max().reset_index()
-    chart = (
-        alt.Chart(max_per_day)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("workout_date:T", title="Date"),
-            y=alt.Y("weight_lbs:Q", title="Max weight (lbs)"),
-            tooltip=["workout_date:T", "weight_lbs:Q"],
-        )
-        .properties(height=250)
+    df["volume_lbs"] = df["reps"] * df["weight_lbs"]
+    df["e1rm_lbs"] = [
+        epley_1rm(float(w), int(r)) for w, r in zip(df["weight_lbs"], df["reps"])
+    ]
+    daily = df.groupby("workout_date", as_index=False).agg(
+        volume_lbs=("volume_lbs", "sum"),
+        best_e1rm=("e1rm_lbs", "max"),
+        sets=("set_number", "count"),
+        top_weight=("weight_lbs", "max"),
     )
-    st.altair_chart(chart, use_container_width=True)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    best_row = daily.loc[daily["best_e1rm"].idxmax()]
+    latest = daily.iloc[-1]
+    best_vol = daily.loc[daily["volume_lbs"].idxmax()]
+    stat_tiles(
+        [
+            (
+                "Best est. 1RM",
+                f"{best_row['best_e1rm']:,.0f} <span>lbs</span>",
+                f"{best_row['workout_date']:%b %-d, %Y}",
+            ),
+            (
+                "Latest est. 1RM",
+                f"{latest['best_e1rm']:,.0f} <span>lbs</span>",
+                f"{latest['workout_date']:%b %-d, %Y}",
+            ),
+            (
+                "Best day volume",
+                f"{best_vol['volume_lbs']:,.0f} <span>lbs</span>",
+                f"{best_vol['workout_date']:%b %-d, %Y}",
+            ),
+            ("Sessions", f"{len(daily)}", f"{len(df)} sets in the last year"),
+        ]
+    )
+
+    tab_volume, tab_e1rm = st.tabs(["Total volume", "Estimated 1RM"])
+    with tab_volume:
+        st.altair_chart(build_volume_chart(daily), width="stretch", theme=None)
+        st.caption("Total volume = Σ reps × weight across every set that day.")
+    with tab_e1rm:
+        st.altair_chart(build_e1rm_chart(df, daily), width="stretch", theme=None)
+        st.caption(
+            "Estimated 1RM (Epley): weight × (1 + reps ÷ 30) per set; the line tracks "
+            "each day's best set. Estimates get rough above ~12 reps."
+        )
+
+    with st.expander("All sets (last year)"):
+        table = pd.DataFrame(
+            {
+                "Date": df["workout_date"].dt.date,
+                "Set": df["set_number"],
+                "Reps": df["reps"],
+                "Weight (lbs)": df["weight_lbs"],
+                "Volume (lbs)": df["volume_lbs"],
+                "Est. 1RM (lbs)": df["e1rm_lbs"].round(1),
+            }
+        )
+        st.dataframe(table, width="stretch", hide_index=True)
 
 
 # %%
@@ -542,9 +911,18 @@ PAGES = {
 }
 
 if require_login():
-    if st.sidebar.button("Log out", key="logout_btn"):
-        st.session_state.pop("jwt", None)
-        st.rerun()
-    choice = st.sidebar.radio("Page", list(PAGES.keys()))
-    st.sidebar.divider()
+    with st.sidebar:
+        st.markdown(
+            '<div class="ll-brand">🏋&nbsp; Load <span>Log</span></div>',
+            unsafe_allow_html=True,
+        )
+        choice = st.sidebar.radio(
+            "Page", list(PAGES.keys()), label_visibility="collapsed"
+        )
+        st.divider()
     PAGES[choice]()
+    with st.sidebar:
+        st.divider()
+        if st.button("Log out", key="logout_btn", width="stretch"):
+            st.session_state.pop("jwt", None)
+            st.rerun()

@@ -1,0 +1,17 @@
+# Streamlit theme for the Load Log web app.
+# Dark, single-accent palette; charts and custom CSS in src/web/app.py use the
+# same tokens (see THEME constants there) so the whole page reads as one system.
+
+[theme]
+base = "dark"
+primaryColor = "#3987e5"
+backgroundColor = "#0d0d0d"
+secondaryBackgroundColor = "#1a1a19"
+textColor = "#fafaf7"
+linkColor = "#86b6ef"
+borderColor = "#2c2c2a"
+baseRadius = "0.75rem"
+font = "sans-serif"
+
+[browser]
+gatherUsageStats = false
