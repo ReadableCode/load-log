@@ -392,14 +392,14 @@ def get_exercise_history(
         token,
         "workout_sets",
         {
-            "select": "workout_date,set_number,reps,weight_lbs",
+            "select": "id,workout_date,set_number,reps,weight_lbs",
             "exercise_id": f"eq.{exercise_id}",
             "workout_date": f"gte.{cutoff.isoformat()}",
             "order": "workout_date.asc,set_number.asc",
         },
     )
     df = pd.DataFrame(
-        rows, columns=["workout_date", "set_number", "reps", "weight_lbs"]
+        rows, columns=["id", "workout_date", "set_number", "reps", "weight_lbs"]
     )
     if not df.empty:
         df["workout_date"] = pd.to_datetime(df["workout_date"])

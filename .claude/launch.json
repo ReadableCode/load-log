@@ -1,0 +1,22 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-stub",
+      "cwd": "backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "streamlit",
+        "run",
+        "src/web/app.py",
+        "--server.port",
+        "8601",
+        "--server.headless",
+        "true"
+      ],
+      "env": { "PYTHONPATH": "dev/stub:src" },
+      "port": 8601
+    }
+  ]
+}

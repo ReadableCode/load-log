@@ -669,6 +669,8 @@ def page_workouts():
     token = _token()
 
     today = browser_today()
+    if "workout_date_input" not in st.session_state:
+        st.session_state["workout_date_input"] = today
     volumes = api_client.get_volume_by_date(token, days=400)
 
     event = st.altair_chart(
@@ -678,17 +680,30 @@ def page_workouts():
         on_select="rerun",
         key="workout_heatmap",
     )
-    picked = _selected_date_from_event(event) or st.session_state.get(
-        "workout_picked_date", today
+    # The heatmap selection persists across reruns, so only a *new* click moves
+    # the date — otherwise the picker below stays in charge.
+    clicked = _selected_date_from_event(event)
+    if (
+        clicked
+        and clicked <= today
+        and clicked.isoformat() != st.session_state.get("workout_heatmap_click")
+    ):
+        st.session_state["workout_heatmap_click"] = clicked.isoformat()
+        st.session_state["workout_date_input"] = clicked
+
+    date_col, _ = st.columns([1, 2])
+    picked = date_col.date_input(
+        "Workout date",
+        key="workout_date_input",
+        max_value=today,
+        help="Defaults to today — pick any past day to add or fix sets.",
     )
-    if isinstance(picked, str):
-        picked = date.fromisoformat(picked)
-    st.session_state["workout_picked_date"] = picked.isoformat()
 
     sets = api_client.get_sets_for_date(token, picked)
     _day_stat_tiles(picked, sets, volumes)
     st.caption(
-        f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — click another heatmap cell to jump"
+        f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — change the date above "
+        "or click a heatmap cell to jump"
     )
 
     _render_day(picked, sets)
@@ -942,17 +957,70 @@ def _render_history_section() -> None:
         )
 
     with st.expander("all sets (last year)"):
-        table = pd.DataFrame(
-            {
-                "Date": df["workout_date"].dt.date,
-                "Set": df["set_number"],
-                "Reps": df["reps"],
-                "Weight (lbs)": df["weight_lbs"],
-                "Volume (lbs)": df["volume_lbs"],
-                "Est. 1RM (lbs)": df["e1rm_lbs"].round(1),
-            }
-        )
-        st.dataframe(table, width="stretch", hide_index=True)
+        _history_set_editor(df, ex_id)
+
+
+def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
+    """Editable per-set history table. Edits to reps/weight persist on commit
+    (tab-out or Enter) via update_set; volume and est. 1RM refresh on rerun."""
+    st.caption("Click a Reps or Weight cell to edit — changes save immediately.")
+    table = pd.DataFrame(
+        {
+            "id": df["id"],
+            "Date": df["workout_date"].dt.date,
+            "Set": df["set_number"],
+            "Reps": df["reps"],
+            "Weight (lbs)": df["weight_lbs"],
+            "Volume (lbs)": df["volume_lbs"],
+            "Est. 1RM (lbs)": df["e1rm_lbs"].round(1),
+        }
+    )
+    edited = st.data_editor(
+        table,
+        column_config={
+            "id": None,
+            "Date": st.column_config.DateColumn("Date", disabled=True),
+            "Set": st.column_config.NumberColumn("Set", disabled=True),
+            "Reps": st.column_config.NumberColumn(
+                "Reps",
+                required=True,
+                min_value=1,
+                max_value=100,
+                step=1,
+                format="%d",
+            ),
+            "Weight (lbs)": st.column_config.NumberColumn(
+                "Weight (lbs)",
+                required=True,
+                min_value=0.0,
+                max_value=2000.0,
+                step=2.5,
+            ),
+            "Volume (lbs)": st.column_config.NumberColumn(
+                "Volume (lbs)", disabled=True
+            ),
+            "Est. 1RM (lbs)": st.column_config.NumberColumn(
+                "Est. 1RM (lbs)", disabled=True
+            ),
+        },
+        width="stretch",
+        hide_index=True,
+        key=f"history_editor_{ex_id}",
+    )
+
+    token = _token()
+    orig_map = {int(r["id"]): r for _, r in table.iterrows()}
+    changed = False
+    for _, row in edited.iterrows():
+        sid = int(row["id"])
+        orig = orig_map[sid]
+        if int(row["Reps"]) != int(orig["Reps"]) or float(
+            row["Weight (lbs)"]
+        ) != float(orig["Weight (lbs)"]):
+            api_client.update_set(token, sid, int(row["Reps"]), float(row["Weight (lbs)"]))
+            changed = True
+    if changed:
+        st.rerun()
 
 
 # %%

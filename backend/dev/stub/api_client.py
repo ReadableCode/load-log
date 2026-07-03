@@ -125,24 +125,49 @@ def get_last_workout_for_exercise(token, exercise_id, before_date=None):
 
 
 def get_sets_for_date(token, workout_date):
-    return [dict(s) for s in _SETS if s["workout_date"] == workout_date]
+    day = [dict(s) for s in _SETS if s["workout_date"] == workout_date]
+    return sorted(day, key=lambda s: (s["exercise_id"], s["set_number"]))
 
 
 def add_set(token, workout_date, exercise_id, reps, weight_lbs):
-    return {}
+    # Mutate _SETS so the preview behaves like the real app (edits persist
+    # across Streamlit reruns until the server restarts).
+    ex = next((e for e in _EXERCISES if e["id"] == exercise_id), _EXERCISES[0])
+    nums = [
+        s["set_number"]
+        for s in _SETS
+        if s["workout_date"] == workout_date and s["exercise_id"] == exercise_id
+    ]
+    row = {
+        "id": max((s["id"] for s in _SETS), default=0) + 1,
+        "workout_date": workout_date,
+        "exercise_id": exercise_id,
+        "exercise_name": ex["name"],
+        "set_number": max(nums, default=0) + 1,
+        "reps": reps,
+        "weight_lbs": weight_lbs,
+    }
+    _SETS.append(row)
+    return dict(row)
 
 
 def delete_set(token, set_id):
-    pass
+    _SETS[:] = [s for s in _SETS if s["id"] != set_id]
 
 
 def update_set(token, set_id, reps, weight_lbs):
+    for s in _SETS:
+        if s["id"] == set_id:
+            s["reps"] = reps
+            s["weight_lbs"] = weight_lbs
+            return dict(s)
     return None
 
 
 def get_exercise_history(token, exercise_id, limit_days=365):
     rows = [
         {
+            "id": s["id"],
             "workout_date": s["workout_date"],
             "set_number": s["set_number"],
             "reps": s["reps"],
@@ -152,7 +177,7 @@ def get_exercise_history(token, exercise_id, limit_days=365):
         if s["exercise_id"] == exercise_id
     ]
     df = pd.DataFrame(
-        rows, columns=["workout_date", "set_number", "reps", "weight_lbs"]
+        rows, columns=["id", "workout_date", "set_number", "reps", "weight_lbs"]
     )
     if not df.empty:
         df["workout_date"] = pd.to_datetime(df["workout_date"])
