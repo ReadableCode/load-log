@@ -48,6 +48,7 @@ ACCENT_BRIGHT = "#56d364"  # text green: prompt glyph, // slashes, brand
 AMBER = "#b8860b"  # second chart series (validated CVD-safe next to ACCENT)
 AMBER_BRIGHT = "#e3b341"  # amber text highlights + today ring
 TODAY_RING = AMBER_BRIGHT
+SELECTED_RING = INK  # selected-day outline; CVD-safe next to TODAY_RING
 
 FONT = 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace'
 
@@ -350,7 +351,23 @@ def _heatmap_dataframe(completions: list[date], today: date) -> pd.DataFrame:
     return df
 
 
-def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
+def _selection_ring(
+    df: pd.DataFrame, select_day: alt.Parameter, dow_order: list[str]
+) -> alt.Chart:
+    """Bright outline layered over the clicked cell, so the selected day stands
+    out from its neighbors regardless of the cell's fill shade."""
+    return (
+        alt.Chart(df)
+        .mark_rect(fillOpacity=0, stroke=SELECTED_RING, strokeWidth=2, cornerRadius=2)
+        .encode(
+            x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
+            y=alt.Y("dow:O", sort=dow_order, title=None),
+        )
+        .transform_filter(select_day)
+    )
+
+
+def build_heatmap(completions: list[date], today: date) -> alt.VConcatChart:
     df = _heatmap_dataframe(completions, today)
     dow_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -377,7 +394,6 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
                 "datum.is_today", alt.value(TODAY_RING), alt.value(BG)
             ),
             strokeWidth=alt.condition("datum.is_today", alt.value(2), alt.value(1)),
-            opacity=alt.condition(select_day, alt.value(1.0), alt.value(0.85)),
             tooltip=[
                 alt.Tooltip("date_pretty:N", title="Date"),
                 alt.Tooltip("status:N", title="Status"),
@@ -386,6 +402,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
         .add_params(select_day)
         .properties(height=150)
     )
+    ring = _selection_ring(df, select_day, dow_order)
 
     month_labels = (
         alt.Chart(week_starts)
@@ -394,7 +411,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
         .properties(height=14)
     )
 
-    return alt.vconcat(month_labels, rects).resolve_scale(x="shared")
+    return alt.vconcat(month_labels, rects + ring).resolve_scale(x="shared")
 
 
 # %%
@@ -448,7 +465,8 @@ def page_habits():
             done_str = "✓ completed" if is_done else "✗ not done"
             st.caption(
                 f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — {done_str} "
-                "(click a cell to pick another day)"
+                "(click a cell to pick another day — white outline = selected, "
+                "amber = today)"
             )
 
             cols = st.columns([1, 1])
@@ -485,7 +503,7 @@ def _selected_date_from_event(event) -> date | None:
 # Volume Heatmap #
 
 
-def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerChart:
+def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.VConcatChart:
     start = today - timedelta(days=today.weekday()) - timedelta(weeks=51)
     end = today + timedelta(days=(6 - today.weekday()))
 
@@ -534,7 +552,6 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
                 "datum.is_today", alt.value(TODAY_RING), alt.value(BG)
             ),
             strokeWidth=alt.condition("datum.is_today", alt.value(2), alt.value(1)),
-            opacity=alt.condition(select_day, alt.value(1.0), alt.value(0.9)),
             tooltip=[
                 alt.Tooltip("date_pretty:N", title="Date"),
                 alt.Tooltip("volume:Q", title="Volume (lbs)", format=",.0f"),
@@ -543,6 +560,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
         .add_params(select_day)
         .properties(height=160)
     )
+    ring = _selection_ring(df, select_day, dow_order)
 
     month_labels = (
         alt.Chart(week_starts)
@@ -551,7 +569,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
         .properties(height=14)
     )
 
-    return alt.vconcat(month_labels, rects).resolve_scale(x="shared")
+    return alt.vconcat(month_labels, rects + ring).resolve_scale(x="shared")
 
 
 def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
@@ -691,6 +709,17 @@ def page_workouts():
         st.session_state["workout_heatmap_click"] = clicked.isoformat()
         st.session_state["workout_date_input"] = clicked
 
+    st.caption(
+        "Click a cell to jump to that day — white outline = selected, amber = today"
+    )
+
+    # The date widget renders further down (inside the log-sets section), but its
+    # value already lives in session_state, so the day summary can use it here.
+    picked = st.session_state["workout_date_input"]
+    sets = api_client.get_sets_for_date(token, picked)
+    _day_stat_tiles(picked, sets, volumes)
+
+    section_header("log sets")
     date_col, _ = st.columns([1, 2])
     picked = date_col.date_input(
         "Workout date",
@@ -698,14 +727,6 @@ def page_workouts():
         max_value=today,
         help="Defaults to today — pick any past day to add or fix sets.",
     )
-
-    sets = api_client.get_sets_for_date(token, picked)
-    _day_stat_tiles(picked, sets, volumes)
-    st.caption(
-        f"Selected: **{picked.strftime('%a %b %-d, %Y')}** — change the date above "
-        "or click a heatmap cell to jump"
-    )
-
     _render_day(picked, sets)
     st.divider()
     _render_history_section()
@@ -1014,10 +1035,12 @@ def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
     for _, row in edited.iterrows():
         sid = int(row["id"])
         orig = orig_map[sid]
-        if int(row["Reps"]) != int(orig["Reps"]) or float(
-            row["Weight (lbs)"]
-        ) != float(orig["Weight (lbs)"]):
-            api_client.update_set(token, sid, int(row["Reps"]), float(row["Weight (lbs)"]))
+        if int(row["Reps"]) != int(orig["Reps"]) or float(row["Weight (lbs)"]) != float(
+            orig["Weight (lbs)"]
+        ):
+            api_client.update_set(
+                token, sid, int(row["Reps"]), float(row["Weight (lbs)"])
+            )
             changed = True
     if changed:
         st.rerun()
