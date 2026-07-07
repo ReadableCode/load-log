@@ -1,6 +1,7 @@
 # %%
 # Imports #
 
+import json
 import os
 import sys
 from datetime import date, datetime, timedelta
@@ -360,14 +361,40 @@ def _selection_ring(
         alt.Chart(df)
         .mark_rect(fillOpacity=0, stroke=SELECTED_RING, strokeWidth=2, cornerRadius=2)
         .encode(
-            x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
+            # No explicit axis: an `axis=None` here would win the layer merge
+            # and hide the month labels the base layer puts on the shared axis.
+            x=alt.X("week:O", title=None),
             y=alt.Y("dow:O", sort=dow_order, title=None),
         )
         .transform_filter(select_day)
     )
 
 
-def build_heatmap(completions: list[date], today: date) -> alt.VConcatChart:
+def _month_axis(week_starts: pd.DataFrame) -> alt.Axis:
+    """Top x-axis that names the first week of each month, GitHub style.
+
+    The labels ride the axis (via labelExpr) rather than a vconcat'd text
+    chart: Vega-Lite can only autosize single/layered views to the container,
+    so a concat chart ignores Streamlit's stretch width and its cells overflow
+    the card it sits in.
+    """
+    labels = {
+        str(int(w)): m
+        for w, m in zip(week_starts["week"], week_starts["month_label"])
+        if m
+    }
+    return alt.Axis(
+        orient="top",
+        ticks=False,
+        domain=False,
+        labelAngle=0,
+        labelAlign="left",
+        labelPadding=6,
+        labelExpr=f"{json.dumps(labels)}[datum.value] || ''",
+    )
+
+
+def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
     df = _heatmap_dataframe(completions, today)
     dow_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -387,7 +414,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.VConcatChart:
         alt.Chart(df)
         .mark_rect(stroke=BG, strokeWidth=1, cornerRadius=2)
         .encode(
-            x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
+            x=alt.X("week:O", title=None, axis=_month_axis(week_starts)),
             y=alt.Y("dow:O", sort=dow_order, title=None),
             color=alt.Color("color:N", scale=None, legend=None),
             stroke=alt.condition(
@@ -403,15 +430,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.VConcatChart:
         .properties(height=150)
     )
     ring = _selection_ring(df, select_day, dow_order)
-
-    month_labels = (
-        alt.Chart(week_starts)
-        .mark_text(align="left", baseline="bottom", fontSize=11, color=INK_MUTED)
-        .encode(x=alt.X("week:O", axis=None), text="month_label:N")
-        .properties(height=14)
-    )
-
-    return alt.vconcat(month_labels, rects + ring).resolve_scale(x="shared")
+    return rects + ring
 
 
 # %%
@@ -503,7 +522,7 @@ def _selected_date_from_event(event) -> date | None:
 # Volume Heatmap #
 
 
-def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.VConcatChart:
+def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerChart:
     start = today - timedelta(days=today.weekday()) - timedelta(weeks=51)
     end = today + timedelta(days=(6 - today.weekday()))
 
@@ -536,7 +555,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.VConcat
         alt.Chart(df)
         .mark_rect(stroke=BG, strokeWidth=1, cornerRadius=2)
         .encode(
-            x=alt.X("week:O", title=None, axis=alt.Axis(labels=False, ticks=False)),
+            x=alt.X("week:O", title=None, axis=_month_axis(week_starts)),
             y=alt.Y("dow:O", sort=dow_order, title=None),
             color=alt.Color(
                 "volume_or_null:Q",
@@ -561,15 +580,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.VConcat
         .properties(height=160)
     )
     ring = _selection_ring(df, select_day, dow_order)
-
-    month_labels = (
-        alt.Chart(week_starts)
-        .mark_text(align="left", baseline="bottom", fontSize=11, color=INK_MUTED)
-        .encode(x=alt.X("week:O", axis=None), text="month_label:N")
-        .properties(height=14)
-    )
-
-    return alt.vconcat(month_labels, rects + ring).resolve_scale(x="shared")
+    return rects + ring
 
 
 def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
