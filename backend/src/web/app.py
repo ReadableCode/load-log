@@ -394,6 +394,16 @@ def _month_axis(week_starts: pd.DataFrame) -> alt.Axis:
     )
 
 
+def _fit_width(chart: alt.LayerChart) -> alt.LayerChart:
+    """Fit the chart to the container's width while keeping `height` as the
+    true grid height. Without this, Streamlit defaults single/layered views to
+    autosize "fit" (both dimensions), which squeezes the month axis and legend
+    into the declared height and squishes the day rows flat."""
+    return chart.properties(
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding")
+    )
+
+
 def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
     df = _heatmap_dataframe(completions, today)
     dow_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -430,7 +440,7 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
         .properties(height=150)
     )
     ring = _selection_ring(df, select_day, dow_order)
-    return rects + ring
+    return _fit_width(rects + ring)
 
 
 # %%
@@ -580,7 +590,7 @@ def build_volume_heatmap(volumes: dict[date, float], today: date) -> alt.LayerCh
         .properties(height=160)
     )
     ring = _selection_ring(df, select_day, dow_order)
-    return rects + ring
+    return _fit_width(rects + ring)
 
 
 def _volume_thresholds(volumes: dict[date, float]) -> list[float]:
