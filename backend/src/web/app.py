@@ -252,6 +252,18 @@ def _token() -> str:
     return st.session_state["jwt"]
 
 
+def _browser_ip() -> str | None:
+    """The viewer's IP as the SWAG proxy reported it (first X-Forwarded-For
+    hop), forwarded to the auth service so its per-IP lockout counts the
+    browser rather than this container. None when running without a proxy
+    (local dev) — the auth service falls back to the socket peer."""
+    headers = getattr(st.context, "headers", None)
+    if not headers:
+        return None
+    forwarded = headers.get("X-Forwarded-For", "")
+    return forwarded.split(",")[0].strip() or None
+
+
 def require_login() -> bool:
     """Render the login form when unauthenticated. Returns True once a JWT is in
     session_state, False while the login form is still showing."""
@@ -278,9 +290,17 @@ def require_login() -> bool:
             submitted = st.form_submit_button("Log in", type="primary", width="stretch")
         if submitted:
             try:
-                token = api_client.login(username, password)
-            except requests.HTTPError:
-                st.error("Invalid username or password.")
+                token = api_client.login(username, password, client_ip=_browser_ip())
+            except requests.HTTPError as exc:
+                resp = exc.response
+                if resp is not None and resp.status_code == 429:
+                    try:
+                        detail = resp.json().get("detail", "")
+                    except ValueError:
+                        detail = ""
+                    st.error(detail or "Too many attempts — try again in a few minutes.")
+                else:
+                    st.error("Invalid username or password.")
                 return False
             except requests.RequestException:
                 st.error("Could not reach the auth service. Try again shortly.")

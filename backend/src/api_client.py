@@ -30,14 +30,22 @@ TIMEOUT = 15
 # Auth #
 
 
-def login(username: str, password: str) -> str:
+def login(username: str, password: str, client_ip: str | None = None) -> str:
     """Exchange credentials for a JWT via the auth service. Returns the token.
 
-    Raises requests.HTTPError on bad credentials (the auth service returns 401).
+    Raises requests.HTTPError on bad credentials (401) or when the auth
+    service's brute-force lockout trips (429 — inspect
+    exc.response.status_code to tell them apart).
+
+    client_ip: the end user's IP, forwarded as X-Forwarded-For. The Streamlit
+    app calls the auth service server-side, so without this every visitor
+    would share the container's IP in the auth service's per-IP lockout.
     """
+    headers = {"X-Forwarded-For": client_ip} if client_ip else {}
     resp = requests.post(
         f"{AUTH_URL}/token",
         json={"schema": APP_SCHEMA, "username": username, "password": password},
+        headers=headers,
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
