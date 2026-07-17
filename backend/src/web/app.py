@@ -828,11 +828,23 @@ def _render_day(picked: date, sets: list[dict]) -> None:
     exercises = api_client.get_all_exercises(token)
     names = [e["name"] for e in exercises]
     cols = st.columns([3, 2])
+    typed_key = f"new_ex_{picked.isoformat()}"
+    pick_key = f"pick_ex_{picked.isoformat()}"
+
+    # The two widgets are alternatives: whichever the user touched last wins,
+    # so each one clears the other on change. Without this, a typed name
+    # sticks in session state and silently overrides later dropdown picks.
+    def _clear_typed() -> None:
+        st.session_state[typed_key] = ""
+
+    def _clear_picked() -> None:
+        st.session_state[pick_key] = "—"
+
     typed = cols[0].text_input(
-        "New exercise (or pick one →)", key=f"new_ex_{picked.isoformat()}"
+        "New exercise (or pick one →)", key=typed_key, on_change=_clear_picked
     )
     picked_existing = cols[1].selectbox(
-        "Existing", options=["—"] + names, index=0, key=f"pick_ex_{picked.isoformat()}"
+        "Existing", options=["—"] + names, index=0, key=pick_key, on_change=_clear_typed
     )
     exercise_name = typed.strip() or (picked_existing if picked_existing != "—" else "")
 
