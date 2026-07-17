@@ -5,7 +5,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 # %%
 # Config #
@@ -80,6 +80,14 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+
+        # Tell PostgREST (a separate, long-running container) to reload its
+        # schema cache. Without this, a migration that adds a column leaves the
+        # cache stale and PostgREST 400s any INSERT/UPDATE naming that column
+        # (PGRST204) until it is restarted. NOTIFY only fires on commit, so it
+        # must run in its own committed transaction after the migrations land.
+        connection.execute(text("NOTIFY pgrst, 'reload schema'"))
+        connection.commit()
 
 
 # %%
