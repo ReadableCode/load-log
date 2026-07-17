@@ -17,7 +17,8 @@ Defines a recurring daily goal (e.g., "10,000 steps", "60s plank").
 CREATE TABLE IF NOT EXISTS habits (
     id          SERIAL PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
-    created_at  DATE NOT NULL DEFAULT CURRENT_DATE
+    created_at  DATE NOT NULL DEFAULT CURRENT_DATE,
+    sort_order  INTEGER  -- user-chosen display position (1..N); NULL sorts last
 );
 ```
 
