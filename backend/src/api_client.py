@@ -15,7 +15,9 @@ import requests
 # on each request — Postgres is never hit directly. Tables are exposed at the
 # schema root (e.g. /workout_sets) because PGRST_DB_SCHEMAS=load_log makes
 # load_log the default schema — paths are NOT prefixed with /load_log.
-POSTGREST_URL = os.environ.get("POSTGREST_URL", "https://pgrest.tinkernet.me").rstrip("/")
+POSTGREST_URL = os.environ.get("POSTGREST_URL", "https://pgrest.tinkernet.me").rstrip(
+    "/"
+)
 AUTH_URL = os.environ.get("AUTH_URL", "https://auth.tinkernet.me").rstrip("/")
 
 # load-log's Postgres schema. The shared auth service maps this to the
@@ -117,21 +119,58 @@ def _delete(token: str, table: str, params: dict) -> list[dict]:
 
 
 def get_all_habits(token: str) -> list[dict]:
+    """Habits in the user's chosen display order. Rows predating the
+    sort_order column (NULL) sort last, then by creation order."""
     return _get(
         token,
         "habits",
-        {"select": "id,name,created_at", "order": "created_at.asc,id.asc"},
+        {
+            "select": "id,name,created_at,sort_order",
+            "order": "sort_order.asc.nullslast,created_at.asc,id.asc",
+        },
     )
 
 
 def add_habit(token: str, name: str) -> dict:
+    """Insert a habit at the end of the display order (max sort_order + 1)."""
+    existing = _get(
+        token,
+        "habits",
+        {"select": "sort_order", "order": "sort_order.desc.nullslast", "limit": "1"},
+    )
+    next_order = (existing[0]["sort_order"] if existing else None) or 0
     rows = _post(
         token,
         "habits",
-        {"name": name},
-        params={"select": "id,name,created_at"},
+        {"name": name, "sort_order": next_order + 1},
+        params={"select": "id,name,created_at,sort_order"},
     )
     return rows[0] if rows else {}
+
+
+def move_habit(token: str, habit_id: int, direction: int) -> bool:
+    """Swap a habit with its neighbor in the display order.
+
+    direction is -1 (up) or +1 (down). Returns False when the habit is already
+    at that edge (or unknown). Rewrites sort_order as the positional index
+    1..N for any row that is off, which also normalizes NULLs/duplicates left
+    over from before the column existed.
+    """
+    habits = get_all_habits(token)
+    ids = [h["id"] for h in habits]
+    if habit_id not in ids:
+        return False
+    i = ids.index(habit_id)
+    j = i + direction
+    if j < 0 or j >= len(ids):
+        return False
+    ids[i], ids[j] = ids[j], ids[i]
+
+    current = {h["id"]: h.get("sort_order") for h in habits}
+    for position, hid in enumerate(ids, start=1):
+        if current[hid] != position:
+            _patch(token, "habits", {"id": f"eq.{hid}"}, {"sort_order": position})
+    return True
 
 
 def delete_habit(token: str, habit_id: int) -> None:
@@ -219,9 +258,7 @@ def get_or_create_exercise(token: str, name: str) -> dict:
     )
     if existing:
         return existing[0]
-    rows = _post(
-        token, "exercises", {"name": normalized}, params={"select": "id,name"}
-    )
+    rows = _post(token, "exercises", {"name": normalized}, params={"select": "id,name"})
     return rows[0] if rows else {}
 
 
@@ -307,9 +344,7 @@ def delete_set(token: str, set_id: int) -> None:
             )
 
 
-def update_set(
-    token: str, set_id: int, reps: int, weight_lbs: float
-) -> dict | None:
+def update_set(token: str, set_id: int, reps: int, weight_lbs: float) -> dict | None:
     """Patch reps/weight on an existing set. Mirrors workouts.update_set."""
     rows = _patch(
         token,

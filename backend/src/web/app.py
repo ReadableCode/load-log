@@ -298,7 +298,9 @@ def require_login() -> bool:
                         detail = resp.json().get("detail", "")
                     except ValueError:
                         detail = ""
-                    st.error(detail or "Too many attempts — try again in a few minutes.")
+                    st.error(
+                        detail or "Too many attempts — try again in a few minutes."
+                    )
                 else:
                     st.error("Invalid username or password.")
                 return False
@@ -472,6 +474,7 @@ def page_habits():
         "daily habits", "keep the streaks alive — click any cell to toggle a day"
     )
     token = _token()
+    all_habits = api_client.get_all_habits(token)
 
     with st.sidebar:
         st.subheader("add habit")
@@ -482,14 +485,26 @@ def page_habits():
 
         st.divider()
         st.subheader("your habits")
-        for h in api_client.get_all_habits(token):
-            cols = st.columns([4, 1])
+        st.caption("↑ ↓ reorder — the page follows this order")
+        for idx, h in enumerate(all_habits):
+            cols = st.columns([3, 1, 1, 1])
             cols[0].write(h["name"])
-            if cols[1].button("✕", key=f"del_{h['id']}"):
+            if cols[1].button(
+                "↑", key=f"up_{h['id']}", disabled=idx == 0, help="Move up"
+            ):
+                api_client.move_habit(token, h["id"], -1)
+                st.rerun()
+            if cols[2].button(
+                "↓",
+                key=f"down_{h['id']}",
+                disabled=idx == len(all_habits) - 1,
+                help="Move down",
+            ):
+                api_client.move_habit(token, h["id"], 1)
+                st.rerun()
+            if cols[3].button("✕", key=f"del_{h['id']}", help="Delete habit"):
                 api_client.delete_habit(token, h["id"])
                 st.rerun()
-
-    all_habits = api_client.get_all_habits(token)
     if not all_habits:
         st.info("Add your first habit using the sidebar.")
         return
