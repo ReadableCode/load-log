@@ -17,6 +17,11 @@ RUN uv sync --frozen --no-dev
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
+# Streamlit reads .streamlit/config.toml from the working directory; without
+# this the deployed app falls back to the default light theme (white
+# dataframes, red buttons) even though the app CSS paints a dark page.
+COPY .streamlit/ ./.streamlit/
+
 # Alembic config + migrations. The entrypoint runs `alembic upgrade head`
 # before whatever CMD/compose-command is passed, so migrations apply first for
 # every service that uses this image.

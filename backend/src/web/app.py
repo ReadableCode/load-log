@@ -101,6 +101,24 @@ def _inject_css() -> None:
             background: {SURFACE};
             border-right: 1px solid {BORDER};
         }}
+        /* The collapsed-sidebar expander (» at top left) ships as a bare muted
+           glyph on a dark page — give it a visible card + green arrow so it
+           reads as a control, especially on mobile where the sidebar always
+           starts collapsed. Both testids cover Streamlit's naming variants. */
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stExpandSidebarButton"] {{
+            background: {SURFACE};
+            border: 1px solid {BORDER};
+            border-radius: 8px;
+        }}
+        [data-testid="stSidebarCollapsedControl"] button,
+        [data-testid="stExpandSidebarButton"] button {{
+            color: {ACCENT_BRIGHT};
+        }}
+        [data-testid="stSidebarCollapsedControl"] button:hover,
+        [data-testid="stExpandSidebarButton"] button:hover {{
+            color: {INK};
+        }}
         [data-testid="stExpander"] {{
             background: {SURFACE};
             border: 1px solid {BORDER};
@@ -208,6 +226,25 @@ def _inject_css() -> None:
         }}
         .ll-term-body .ll-prompt {{ color: {ACCENT_BRIGHT}; }}
         .ll-term-body .hl {{ color: {AMBER_BRIGHT}; }}
+
+        /* On narrow screens the 52-week heatmaps squeeze into unusably thin
+           slivers. Give each heatmap a minimum width so cells stay tappable
+           and let it scroll sideways inside its card. The rtl/ltr pair makes
+           the scroll start at the right edge — the most recent weeks — while
+           the chart itself still renders left-to-right. Scoped to heatmap
+           element keys so the history line charts keep fitting the screen. */
+        @media (max-width: 704px) {{
+            [class*="st-key-heatmap_"],
+            .st-key-workout_heatmap {{
+                overflow-x: auto;
+                direction: rtl;
+            }}
+            [class*="st-key-heatmap_"] [data-testid="stVegaLiteChart"],
+            .st-key-workout_heatmap [data-testid="stVegaLiteChart"] {{
+                min-width: 660px;
+                direction: ltr;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1128,11 +1165,18 @@ if require_login():
             '<div class="ll-brand"><span class="ll-prompt">❯</span>load-log</div>',
             unsafe_allow_html=True,
         )
-        choice = st.sidebar.radio(
-            "Page", list(PAGES.keys()), label_visibility="collapsed"
-        )
         st.divider()
-    PAGES[choice]()
+    # Page nav lives in the main column, not the sidebar: on phones the
+    # sidebar starts collapsed, and burying the only navigation behind it
+    # made switching pages a two-tap scavenger hunt.
+    choice = st.segmented_control(
+        "Page",
+        options=list(PAGES.keys()),
+        default="habits",
+        label_visibility="collapsed",
+        key="page_nav",
+    )
+    PAGES[choice or "habits"]()
     with st.sidebar:
         st.divider()
         if st.button("Log out", key="logout_btn", width="stretch"):

@@ -12,6 +12,8 @@ secondaryBackgroundColor = "#121b2a"
 textColor = "#dbe4f0"
 linkColor = "#56d364"
 borderColor = "#243247"
+dataframeBorderColor = "#243247"
+dataframeHeaderBackgroundColor = "#182333"
 baseRadius = "0.5rem"
 font = "monospace"
 
