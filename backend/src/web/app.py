@@ -1,9 +1,11 @@
 # %%
 # Imports #
 
+import hashlib
 import json
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -358,6 +360,14 @@ def browser_today() -> date:
     """
     tz_name = getattr(st.context, "timezone", None)
     if tz_name:
+        # Remember the zone: if a later rerun briefly loses st.context (e.g.
+        # a websocket reconnect), falling back to the server's UTC date would
+        # silently write evening habit-marks and sets onto *tomorrow* — they'd
+        # look like they never registered.
+        st.session_state["_browser_tz"] = tz_name
+    else:
+        tz_name = st.session_state.get("_browser_tz")
+    if tz_name:
         try:
             return datetime.now(ZoneInfo(tz_name)).date()
         except (ZoneInfoNotFoundError, ValueError):
@@ -574,12 +584,26 @@ def page_habits():
                 f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
             )
             if cols[0].button(toggle_label, key=f"toggle_{h['id']}", type="primary"):
-                api_client.toggle_completion(_token(), h["id"], picked)
+                _toggle_habit(h["id"], picked)
                 st.rerun()
             today_label = "Uncheck today" if today in completed_set else "Mark today"
             if cols[1].button(today_label, key=f"today_{h['id']}"):
-                api_client.toggle_completion(_token(), h["id"], today)
+                _toggle_habit(h["id"], today)
                 st.rerun()
+
+
+def _toggle_habit(habit_id: int, target: date) -> None:
+    """Toggle a completion, swallowing a duplicate tap on the same day within a
+    short window. A fast double-tap on the button fires two reruns, and the
+    second toggle would silently undo the first — the habit ends up unmarked
+    even though the user saw themselves mark it."""
+    guard = (habit_id, target.isoformat())
+    now = time.monotonic()
+    last = st.session_state.get("_last_habit_toggle")
+    if last and last[0] == guard and now - last[1] < 2.0:
+        return
+    st.session_state["_last_habit_toggle"] = (guard, now)
+    api_client.toggle_completion(_token(), habit_id, target)
 
 
 def _selected_date_from_event(event) -> date | None:
@@ -948,6 +972,17 @@ def _render_day(picked: date, sets: list[dict]) -> None:
                 )
 
 
+def _editor_key(prefix: str, rows: list[tuple]) -> str:
+    """Key a data_editor to the data it renders. Streamlit stores grid edits
+    and row deletions by ROW POSITION under the widget key, and that state
+    survives st.rerun(). If the key outlives a data change, stale state
+    replays against whatever rows now sit at those positions — deleting one
+    set would silently delete its neighbor on the next rerun. Fingerprinting
+    the rows into the key resets the grid whenever the data changes."""
+    digest = hashlib.md5(repr(rows).encode()).hexdigest()[:10]
+    return f"{prefix}_{digest}"
+
+
 def _show_set_table(picked: date, sets: list[dict]) -> None:
     """Render an editable table of the day's sets. Inline edits to reps/weight
     persist on commit (tab-out or Enter); clicking 🗑 on a row deletes it.
@@ -987,8 +1022,19 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
         num_rows="dynamic",
         width="stretch",
         hide_index=True,
-        key=f"sets_editor_{picked.isoformat()}",
+        key=_editor_key(
+            f"sets_editor_{picked.isoformat()}",
+            [(s["id"], s["reps"], s["weight_lbs"]) for s in sets],
+        ),
     )
+
+    # Rows added via the grid's ➕ have no id (and no way to pick an exercise),
+    # so they can't be saved — say so instead of silently dropping them.
+    if edited["id"].isna().any():
+        st.warning(
+            "Rows added directly to this table aren't saved — use the "
+            "**Log set** form above to add sets."
+        )
 
     orig_ids = {int(i) for i in df["id"]}
     surviving = edited.dropna(subset=["id"])
@@ -1130,7 +1176,10 @@ def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
         },
         width="stretch",
         hide_index=True,
-        key=f"history_editor_{ex_id}",
+        key=_editor_key(
+            f"history_editor_{ex_id}",
+            list(zip(table["id"], table["Reps"], table["Weight (lbs)"])),
+        ),
     )
 
     token = _token()
