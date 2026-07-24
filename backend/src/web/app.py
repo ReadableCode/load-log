@@ -104,19 +104,18 @@ def _inject_css() -> None:
         /* The collapsed-sidebar expander (» at top left) ships as a bare muted
            glyph on a dark page — give it a visible card + green arrow so it
            reads as a control, especially on mobile where the sidebar always
-           starts collapsed. Both testids cover Streamlit's naming variants. */
-        [data-testid="stSidebarCollapsedControl"],
+           starts collapsed. The testid sits on the button itself, and the icon
+           span carries its own muted color class, so both need overriding. */
         [data-testid="stExpandSidebarButton"] {{
             background: {SURFACE};
             border: 1px solid {BORDER};
             border-radius: 8px;
+            padding: 0.35rem;
         }}
-        [data-testid="stSidebarCollapsedControl"] button,
-        [data-testid="stExpandSidebarButton"] button {{
+        [data-testid="stExpandSidebarButton"] span {{
             color: {ACCENT_BRIGHT};
         }}
-        [data-testid="stSidebarCollapsedControl"] button:hover,
-        [data-testid="stExpandSidebarButton"] button:hover {{
+        [data-testid="stExpandSidebarButton"]:hover span {{
             color: {INK};
         }}
         [data-testid="stExpander"] {{
