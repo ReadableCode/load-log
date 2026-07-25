@@ -1,9 +1,11 @@
 # %%
 # Imports #
 
+import hashlib
 import json
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -100,6 +102,23 @@ def _inject_css() -> None:
         [data-testid="stSidebar"] {{
             background: {SURFACE};
             border-right: 1px solid {BORDER};
+        }}
+        /* The collapsed-sidebar expander (» at top left) ships as a bare muted
+           glyph on a dark page — give it a visible card + green arrow so it
+           reads as a control, especially on mobile where the sidebar always
+           starts collapsed. The testid sits on the button itself, and the icon
+           span carries its own muted color class, so both need overriding. */
+        [data-testid="stExpandSidebarButton"] {{
+            background: {SURFACE};
+            border: 1px solid {BORDER};
+            border-radius: 8px;
+            padding: 0.35rem;
+        }}
+        [data-testid="stExpandSidebarButton"] span {{
+            color: {ACCENT_BRIGHT};
+        }}
+        [data-testid="stExpandSidebarButton"]:hover span {{
+            color: {INK};
         }}
         [data-testid="stExpander"] {{
             background: {SURFACE};
@@ -208,10 +227,44 @@ def _inject_css() -> None:
         }}
         .ll-term-body .ll-prompt {{ color: {ACCENT_BRIGHT}; }}
         .ll-term-body .hl {{ color: {AMBER_BRIGHT}; }}
+
+        /* On narrow screens the 52-week heatmaps squeeze into unusably thin
+           slivers. Give each heatmap a minimum width so cells stay tappable
+           and let it scroll sideways inside its card. The rtl/ltr pair makes
+           the scroll start at the right edge — the most recent weeks — while
+           the chart itself still renders left-to-right. Scoped to heatmap
+           element keys so the history line charts keep fitting the screen. */
+        @media (max-width: 704px) {{
+            [class*="st-key-heatmap_"],
+            .st-key-workout_heatmap {{
+                overflow-x: auto;
+                direction: rtl;
+            }}
+            [class*="st-key-heatmap_"] [data-testid="stVegaLiteChart"],
+            .st-key-workout_heatmap [data-testid="stVegaLiteChart"] {{
+                min-width: 660px;
+                direction: ltr;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+def flash(message: str) -> None:
+    """Queue a confirmation toast for the run after the next st.rerun().
+
+    Every successful write gets one. Streamlit silently drops taps that land
+    while the websocket is reconnecting (e.g. a phone waking from sleep), so
+    the absence of a toast is the user's signal that a tap didn't register."""
+    st.session_state["_flash"] = message
+
+
+def show_flash() -> None:
+    msg = st.session_state.pop("_flash", None)
+    if msg:
+        st.toast(msg, icon="✅")
 
 
 def page_header(title: str, subtitle: str) -> None:
@@ -321,6 +374,14 @@ def browser_today() -> date:
     back to the process-local date only if it's unavailable/unknown.
     """
     tz_name = getattr(st.context, "timezone", None)
+    if tz_name:
+        # Remember the zone: if a later rerun briefly loses st.context (e.g.
+        # a websocket reconnect), falling back to the server's UTC date would
+        # silently write evening habit-marks and sets onto *tomorrow* — they'd
+        # look like they never registered.
+        st.session_state["_browser_tz"] = tz_name
+    else:
+        tz_name = st.session_state.get("_browser_tz")
     if tz_name:
         try:
             return datetime.now(ZoneInfo(tz_name)).date()
@@ -470,8 +531,14 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
 
 def page_habits():
+    # NOTE: clicking a heatmap cell only SELECTS the day — the toggle happens
+    # on the button below. The subtitle must never promise click-to-toggle:
+    # users who tapped a cell and saw the selection ring walked away thinking
+    # the day was saved.
     page_header(
-        "daily habits", "keep the streaks alive — click any cell to toggle a day"
+        "daily habits",
+        "keep the streaks alive — tap a cell to pick a day, "
+        "then mark it with the button",
     )
     token = _token()
     all_habits = api_client.get_all_habits(token)
@@ -538,12 +605,27 @@ def page_habits():
                 f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
             )
             if cols[0].button(toggle_label, key=f"toggle_{h['id']}", type="primary"):
-                api_client.toggle_completion(_token(), h["id"], picked)
+                _toggle_habit(h["name"], h["id"], picked)
                 st.rerun()
             today_label = "Uncheck today" if today in completed_set else "Mark today"
             if cols[1].button(today_label, key=f"today_{h['id']}"):
-                api_client.toggle_completion(_token(), h["id"], today)
+                _toggle_habit(h["name"], h["id"], today)
                 st.rerun()
+
+
+def _toggle_habit(name: str, habit_id: int, target: date) -> None:
+    """Toggle a completion, swallowing a duplicate tap on the same day within a
+    short window. A fast double-tap on the button fires two reruns, and the
+    second toggle would silently undo the first — the habit ends up unmarked
+    even though the user saw themselves mark it."""
+    guard = (habit_id, target.isoformat())
+    now = time.monotonic()
+    last = st.session_state.get("_last_habit_toggle")
+    if last and last[0] == guard and now - last[1] < 2.0:
+        return
+    st.session_state["_last_habit_toggle"] = (guard, now)
+    done = api_client.toggle_completion(_token(), habit_id, target)
+    flash(f"{'Marked' if done else 'Unchecked'} {name} — {target:%a %b %-d}")
 
 
 def _selected_date_from_event(event) -> date | None:
@@ -891,7 +973,13 @@ def _render_day(picked: date, sets: list[dict]) -> None:
         )
         submitted = st.form_submit_button("Log set (or press Enter)", type="primary")
         if submitted:
-            api_client.add_set(token, picked, ex["id"], int(reps), float(weight))
+            saved = api_client.add_set(
+                token, picked, ex["id"], int(reps), float(weight)
+            )
+            flash(
+                f"Logged {exercise_name} set {saved.get('set_number', '?')}: "
+                f"{int(reps)} × {weight:g} lbs"
+            )
             st.rerun()
 
     _show_set_table(picked, sets)
@@ -910,6 +998,17 @@ def _render_day(picked: date, sets: list[dict]) -> None:
                 st.write(
                     f"• {s['exercise_name']}: next session try **{suggestion:g} lbs**"
                 )
+
+
+def _editor_key(prefix: str, rows: list[tuple]) -> str:
+    """Key a data_editor to the data it renders. Streamlit stores grid edits
+    and row deletions by ROW POSITION under the widget key, and that state
+    survives st.rerun(). If the key outlives a data change, stale state
+    replays against whatever rows now sit at those positions — deleting one
+    set would silently delete its neighbor on the next rerun. Fingerprinting
+    the rows into the key resets the grid whenever the data changes."""
+    digest = hashlib.md5(repr(rows).encode()).hexdigest()[:10]
+    return f"{prefix}_{digest}"
 
 
 def _show_set_table(picked: date, sets: list[dict]) -> None:
@@ -951,18 +1050,29 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
         num_rows="dynamic",
         width="stretch",
         hide_index=True,
-        key=f"sets_editor_{picked.isoformat()}",
+        key=_editor_key(
+            f"sets_editor_{picked.isoformat()}",
+            [(s["id"], s["reps"], s["weight_lbs"]) for s in sets],
+        ),
     )
+
+    # Rows added via the grid's ➕ have no id (and no way to pick an exercise),
+    # so they can't be saved — say so instead of silently dropping them.
+    if edited["id"].isna().any():
+        st.warning(
+            "Rows added directly to this table aren't saved — use the "
+            "**Log set** form above to add sets."
+        )
 
     orig_ids = {int(i) for i in df["id"]}
     surviving = edited.dropna(subset=["id"])
     new_ids = {int(i) for i in surviving["id"]}
 
     token = _token()
-    changed = False
+    n_deleted = n_updated = 0
     for sid in orig_ids - new_ids:
         api_client.delete_set(token, sid)
-        changed = True
+        n_deleted += 1
 
     orig_map = {int(r["id"]): r for _, r in df.iterrows()}
     new_map = {int(r["id"]): r for _, r in surviving.iterrows()}
@@ -976,9 +1086,15 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
                 int(new_map[sid]["reps"]),
                 float(new_map[sid]["weight_lbs"]),
             )
-            changed = True
+            n_updated += 1
 
-    if changed:
+    if n_deleted or n_updated:
+        parts = []
+        if n_deleted:
+            parts.append(f"deleted {n_deleted} set{'s' if n_deleted != 1 else ''}")
+        if n_updated:
+            parts.append(f"updated {n_updated} set{'s' if n_updated != 1 else ''}")
+        flash(" and ".join(parts).capitalize())
         st.rerun()
 
 
@@ -1094,7 +1210,10 @@ def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
         },
         width="stretch",
         hide_index=True,
-        key=f"history_editor_{ex_id}",
+        key=_editor_key(
+            f"history_editor_{ex_id}",
+            list(zip(table["id"], table["Reps"], table["Weight (lbs)"])),
+        ),
     )
 
     token = _token()
@@ -1111,6 +1230,7 @@ def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
             )
             changed = True
     if changed:
+        flash("Saved set changes")
         st.rerun()
 
 
@@ -1123,16 +1243,24 @@ PAGES = {
 }
 
 if require_login():
+    show_flash()
     with st.sidebar:
         st.markdown(
             '<div class="ll-brand"><span class="ll-prompt">❯</span>load-log</div>',
             unsafe_allow_html=True,
         )
-        choice = st.sidebar.radio(
-            "Page", list(PAGES.keys()), label_visibility="collapsed"
-        )
         st.divider()
-    PAGES[choice]()
+    # Page nav lives in the main column, not the sidebar: on phones the
+    # sidebar starts collapsed, and burying the only navigation behind it
+    # made switching pages a two-tap scavenger hunt.
+    choice = st.segmented_control(
+        "Page",
+        options=list(PAGES.keys()),
+        default="habits",
+        label_visibility="collapsed",
+        key="page_nav",
+    )
+    PAGES[choice or "habits"]()
     with st.sidebar:
         st.divider()
         if st.button("Log out", key="logout_btn", width="stretch"):
