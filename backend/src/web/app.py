@@ -252,6 +252,21 @@ def _inject_css() -> None:
     )
 
 
+def flash(message: str) -> None:
+    """Queue a confirmation toast for the run after the next st.rerun().
+
+    Every successful write gets one. Streamlit silently drops taps that land
+    while the websocket is reconnecting (e.g. a phone waking from sleep), so
+    the absence of a toast is the user's signal that a tap didn't register."""
+    st.session_state["_flash"] = message
+
+
+def show_flash() -> None:
+    msg = st.session_state.pop("_flash", None)
+    if msg:
+        st.toast(msg, icon="✅")
+
+
 def page_header(title: str, subtitle: str) -> None:
     st.markdown(
         f'<div class="ll-header"><h1><span class="ll-sl">//</span> {title}</h1>'
@@ -516,8 +531,14 @@ def build_heatmap(completions: list[date], today: date) -> alt.LayerChart:
 
 
 def page_habits():
+    # NOTE: clicking a heatmap cell only SELECTS the day — the toggle happens
+    # on the button below. The subtitle must never promise click-to-toggle:
+    # users who tapped a cell and saw the selection ring walked away thinking
+    # the day was saved.
     page_header(
-        "daily habits", "keep the streaks alive — click any cell to toggle a day"
+        "daily habits",
+        "keep the streaks alive — tap a cell to pick a day, "
+        "then mark it with the button",
     )
     token = _token()
     all_habits = api_client.get_all_habits(token)
@@ -584,15 +605,15 @@ def page_habits():
                 f"Uncheck {picked:%b %-d}" if is_done else f"Mark {picked:%b %-d}"
             )
             if cols[0].button(toggle_label, key=f"toggle_{h['id']}", type="primary"):
-                _toggle_habit(h["id"], picked)
+                _toggle_habit(h["name"], h["id"], picked)
                 st.rerun()
             today_label = "Uncheck today" if today in completed_set else "Mark today"
             if cols[1].button(today_label, key=f"today_{h['id']}"):
-                _toggle_habit(h["id"], today)
+                _toggle_habit(h["name"], h["id"], today)
                 st.rerun()
 
 
-def _toggle_habit(habit_id: int, target: date) -> None:
+def _toggle_habit(name: str, habit_id: int, target: date) -> None:
     """Toggle a completion, swallowing a duplicate tap on the same day within a
     short window. A fast double-tap on the button fires two reruns, and the
     second toggle would silently undo the first — the habit ends up unmarked
@@ -603,7 +624,8 @@ def _toggle_habit(habit_id: int, target: date) -> None:
     if last and last[0] == guard and now - last[1] < 2.0:
         return
     st.session_state["_last_habit_toggle"] = (guard, now)
-    api_client.toggle_completion(_token(), habit_id, target)
+    done = api_client.toggle_completion(_token(), habit_id, target)
+    flash(f"{'Marked' if done else 'Unchecked'} {name} — {target:%a %b %-d}")
 
 
 def _selected_date_from_event(event) -> date | None:
@@ -951,7 +973,13 @@ def _render_day(picked: date, sets: list[dict]) -> None:
         )
         submitted = st.form_submit_button("Log set (or press Enter)", type="primary")
         if submitted:
-            api_client.add_set(token, picked, ex["id"], int(reps), float(weight))
+            saved = api_client.add_set(
+                token, picked, ex["id"], int(reps), float(weight)
+            )
+            flash(
+                f"Logged {exercise_name} set {saved.get('set_number', '?')}: "
+                f"{int(reps)} × {weight:g} lbs"
+            )
             st.rerun()
 
     _show_set_table(picked, sets)
@@ -1041,10 +1069,10 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
     new_ids = {int(i) for i in surviving["id"]}
 
     token = _token()
-    changed = False
+    n_deleted = n_updated = 0
     for sid in orig_ids - new_ids:
         api_client.delete_set(token, sid)
-        changed = True
+        n_deleted += 1
 
     orig_map = {int(r["id"]): r for _, r in df.iterrows()}
     new_map = {int(r["id"]): r for _, r in surviving.iterrows()}
@@ -1058,9 +1086,15 @@ def _show_set_table(picked: date, sets: list[dict]) -> None:
                 int(new_map[sid]["reps"]),
                 float(new_map[sid]["weight_lbs"]),
             )
-            changed = True
+            n_updated += 1
 
-    if changed:
+    if n_deleted or n_updated:
+        parts = []
+        if n_deleted:
+            parts.append(f"deleted {n_deleted} set{'s' if n_deleted != 1 else ''}")
+        if n_updated:
+            parts.append(f"updated {n_updated} set{'s' if n_updated != 1 else ''}")
+        flash(" and ".join(parts).capitalize())
         st.rerun()
 
 
@@ -1196,6 +1230,7 @@ def _history_set_editor(df: pd.DataFrame, ex_id: int) -> None:
             )
             changed = True
     if changed:
+        flash("Saved set changes")
         st.rerun()
 
 
@@ -1208,6 +1243,7 @@ PAGES = {
 }
 
 if require_login():
+    show_flash()
     with st.sidebar:
         st.markdown(
             '<div class="ll-brand"><span class="ll-prompt">❯</span>load-log</div>',
