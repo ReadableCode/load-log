@@ -13,15 +13,17 @@ import requests
 # Shared PostgREST client used by BOTH the Streamlit web app and the TUI. Every
 # client gets a JWT from the auth service (login) and sends it as a Bearer token
 # on each request — Postgres is never hit directly. Tables are exposed at the
-# schema root (e.g. /workout_sets) because PGRST_DB_SCHEMAS=load_log makes
-# load_log the default schema — paths are NOT prefixed with /load_log.
+# schema root (e.g. /workout_sets) — paths are NOT prefixed with /load_log.
+# Every request pins the schema via Accept-Profile/Content-Profile headers so
+# nothing depends on load_log being first in the server's PGRST_DB_SCHEMAS.
 POSTGREST_URL = os.environ.get("POSTGREST_URL", "https://pgrest.tinkernet.me").rstrip(
     "/"
 )
 AUTH_URL = os.environ.get("AUTH_URL", "https://auth.tinkernet.me").rstrip("/")
 
 # load-log's Postgres schema. The shared auth service maps this to the
-# load_log_user role in the JWT it issues.
+# load_log_user role in the JWT it issues; it is also the profile PostgREST
+# requests are pinned to (see _headers).
 APP_SCHEMA = os.environ.get("APP_SCHEMA", "load_log")
 
 # Network timeout (seconds) for every HTTP call.
@@ -59,10 +61,16 @@ def login(username: str, password: str, client_ip: str | None = None) -> str:
 
 
 def _headers(token: str, *, write: bool = False) -> dict:
-    """Auth header for every PostgREST call. On writes, ask PostgREST to return
-    the affected rows so callers get the inserted/updated representation back."""
-    headers = {"Authorization": f"Bearer {token}"}
+    """Auth header for every PostgREST call. Pins the schema (Accept-Profile on
+    reads, plus Content-Profile on writes) so requests never depend on schema
+    order in PGRST_DB_SCHEMAS. On writes, ask PostgREST to return the affected
+    rows so callers get the inserted/updated representation back."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept-Profile": APP_SCHEMA,
+    }
     if write:
+        headers["Content-Profile"] = APP_SCHEMA
         headers["Prefer"] = "return=representation"
         headers["Content-Type"] = "application/json"
     return headers

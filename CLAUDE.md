@@ -72,9 +72,12 @@ cd backend && uv run alembic upgrade head
 - Auth: `api_client.login(username, password)` POSTs to the auth service and
   returns a JWT. The web app stores it in `st.session_state`; the TUI threads it
   into each screen. Every PostgREST call carries `Authorization: Bearer <jwt>`.
-- Tables are exposed at the schema root (e.g. `/workout_sets`) because
-  `PGRST_DB_SCHEMAS=load_log` makes `load_log` the default schema — paths are
-  NOT prefixed with `/load_log`.
+- Tables are exposed at the schema root (e.g. `/workout_sets`) — paths are NOT
+  prefixed with `/load_log`. Every PostgREST request pins the schema with
+  `Accept-Profile`/`Content-Profile: load_log` headers (set in
+  `api_client._headers`); the app must not rely on schema-list order in the
+  server's `PGRST_DB_SCHEMAS`, and future sibling apps should pin their own
+  schema the same way.
 - Schema lives in the `load_log` schema of the shared `apps` database. See
   `backend/docs/schema.md`. Schema changes go through **Alembic** migrations
   (`backend/alembic/versions/`), applied on container startup by
