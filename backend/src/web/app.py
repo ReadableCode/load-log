@@ -22,11 +22,29 @@ if SRC_DIR not in sys.path:
 # The app talks to PostgREST over HTTP via the shared api_client — no direct
 # Postgres. (The TUI uses the same client.)
 import api_client  # noqa: E402
+import bootstrap  # noqa: E402
 
 # %%
 # Setup #
 
 st.set_page_config(page_title="Load Log", page_icon="🏋", layout="wide")
+
+
+@st.cache_resource
+def _converge_schema() -> bool:
+    """Bring the load_log schema up to date, once per server process.
+
+    Streamlit re-runs this whole script on every interaction, so the work has to
+    be cached rather than guarded by a module-level flag — cache_resource is
+    process-wide and survives reruns. Schema convergence is the app's own job
+    (I6): running it here rather than in the docker entrypoint means a bare
+    `streamlit run` converges too, instead of quietly assuming someone else did.
+    """
+    bootstrap.bootstrap_best_effort()
+    return True
+
+
+_converge_schema()
 
 
 # %%

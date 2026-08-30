@@ -1,8 +1,10 @@
 # %%
-"""Insert a user into load_log.users with a bcrypt password hash.
+"""Insert a user into load_log.users with an argon2id password hash.
 
-Run AFTER the users table exists (alembic migration 0002). The auth service
-reads this table to validate credentials and issue JWTs.
+Run AFTER the users table exists (the app's startup bootstrap creates it). The auth service
+reads this table to validate credentials and issue JWTs — argon2id is the
+standard; pre-existing bcrypt rows keep verifying and get rehashed by the
+service on the next successful login.
 
 Run:
     cd backend && uv run python scripts/create_user.py --username jason --password 'hunter2'
@@ -11,6 +13,7 @@ Reads the POSTGRES_* env vars (same ones config.py / db.py use). Writes a single
 row via parameterized SQL — no other mutation. If the username already exists
 (UNIQUE violation) it reports and exits non-zero rather than overwriting.
 """
+
 # %%
 # Imports #
 
@@ -18,8 +21,8 @@ import argparse
 import os
 import sys
 
-import bcrypt
 import psycopg2
+from argon2 import PasswordHasher
 
 # allow `uv run python scripts/create_user.py` from backend/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -39,7 +42,7 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 
 
 def create_user(username: str, password: str) -> None:
-    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    password_hash = PasswordHasher().hash(password)
 
     conn = psycopg2.connect(
         host=POSTGRES_URL,
@@ -75,7 +78,11 @@ def create_user(username: str, password: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create a load_log user.")
     parser.add_argument("--username", required=True, help="Login username")
-    parser.add_argument("--password", required=True, help="Plaintext password (bcrypt-hashed before storage)")
+    parser.add_argument(
+        "--password",
+        required=True,
+        help="Plaintext password (argon2id-hashed before storage)",
+    )
     args = parser.parse_args()
     create_user(args.username, args.password)
 

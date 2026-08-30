@@ -1,0 +1,37 @@
+# The build context is the repo root (the image needs deploy/*.sql as well as
+# backend/), so everything the repo carries for local work would otherwise be
+# uploaded to the daemon on every build. backend/.venv alone is ~470M.
+#
+# uv sync rebuilds the environment inside the image from pyproject.toml and
+# uv.lock, so no local virtualenv is needed here.
+
+.git
+.gitignore
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.mypy_cache
+.pytest_cache
+
+# Local database dumps and exported tables. Never belong in an image.
+data/
+
+# Local compose stacks, and the deploy SQL the image does not apply:
+# 01_create_roles.sql is a psql runbook step for cluster-wide roles, dev_init.sql
+# is the dev stack's initdb mount, and historic/ has already run. Only
+# 02_schema.sql and 03_secure_users.sql are COPYed.
+docker-compose.yml
+docker-compose.dev.yml
+deploy/dev_init.sql
+deploy/01_create_roles.sql
+deploy/historic/
+
+# Root-level docs (README, CLAUDE.md, the conformance plan). This pattern is
+# path-based and does not match backend/docs/*.md, which nothing COPYs anyway.
+*.md
+
+.env
+.DS_Store
+.claude/
+.vs/

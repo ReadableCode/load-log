@@ -1,17 +1,9 @@
 #!/bin/sh
-# Run database migrations before starting whatever command was passed (CMD or a
-# docker-compose `command:` override). Setting this as the ENTRYPOINT means the
-# streamlit service still gets migrations first even though compose overrides the
-# command.
+# Deliberately inert: schema convergence is the app's job (src/bootstrap.py, run
+# from the Streamlit script and the TUI's main()), so a bare `streamlit run` or
+# `python -m tui.app` behaves identically to the container.
 #
-# Idempotent: `alembic upgrade head` is a no-op when the DB is already current.
-# If the load_log schema does not yet have an alembic_version row (fresh stamp
-# pending) the user runs `alembic stamp 0001` manually first per the migration
-# plan — this script does not stamp, only upgrades.
-set -e
-
-echo "[entrypoint] running alembic upgrade head..."
-uv run alembic upgrade head
-
-echo "[entrypoint] migrations complete; starting: $*"
+# This used to run `alembic upgrade head`. It no longer does, and nothing should
+# be put back here — a migration that only fires when the container starts means
+# the code and the schema can disagree depending on how the app was launched.
 exec "$@"

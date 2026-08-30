@@ -2,8 +2,9 @@
 
 Database: `apps` · schema: `load_log`
 
-Tables live in the `load_log` schema and are created/evolved via Alembic
-migrations (`backend/alembic/versions/`). The DDL below is the canonical shape.
+Tables live in the `load_log` schema. `deploy/02_schema.sql` is the source of
+truth for their shape, applied by `backend/src/bootstrap.py` at app startup. The
+DDL below mirrors it.
 
 ---
 
@@ -40,6 +41,46 @@ CREATE TABLE IF NOT EXISTS habit_completions (
 - All completions for a habit in the last N days → completion heatmap
 - Toggle (upsert / delete) a completion for a specific (habit_id, date)
 - Count of completions per habit in the last 7 / 30 / 365 days
+
+---
+
+## Credentials
+
+### `users`
+
+Read only by the shared postgrest-auth service, over its own superuser
+connection. `deploy/03_secure_users.sql` revokes this table from `load_log_user`
+and `web_anon`, so there is no PostgREST path to a password hash.
+
+```sql
+CREATE TABLE IF NOT EXISTS load_log.users (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    username            text UNIQUE NOT NULL,
+    password_hash       text NOT NULL,
+    role                text NOT NULL DEFAULT 'user',
+    display_name        text NOT NULL DEFAULT '',
+    disabled            boolean NOT NULL DEFAULT false,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    password_changed_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
+This is the fleet-standard shape — every schema postgrest-auth serves has it.
+`role` and `disabled` are read at login; `password_changed_at` is what lets a
+password change or a disable revoke live sessions without a server-side session
+store (tokens issued before it are rejected).
+
+`password_hash` is an opaque string, never parsed or re-encoded. Algorithms are
+self-identifying by prefix (`$2b$` bcrypt, `$argon2id$` argon2id) — the service
+verifies both and rehashes bcrypt rows to argon2id on the next successful login.
+
+Two notes on the live table specifically. Its `created_at` is nullable, because
+the original migration omitted `NOT NULL`; correcting that needs an
+`ALTER COLUMN`, which is deliberately kept out of a boot-time path, and the
+column always has a value in practice. And load-log does not compare a token's
+`iat` against `password_changed_at` — it holds the JWT opaquely and relies on
+PostgREST's `exp` check. That is acceptable while load-log is single-user with
+RLS deferred; revisit if either changes.
 
 ---
 
@@ -88,11 +129,13 @@ CREATE INDEX IF NOT EXISTS workout_sets_date_idx ON workout_sets (workout_date);
 **Crash safety:** each set is inserted as its own request/transaction, so a
 TUI/web crash mid-workout never loses already-logged sets.
 
-**Migrations, not bootstrap.** Schema changes go through Alembic
-(`backend/alembic/versions/`). Migrations are non-destructive by default (no
-`DROP`/`ALTER COLUMN`/unfiltered `DELETE` without explicit review). The baseline
-`0001` uses `CREATE ... IF NOT EXISTS` (a no-op on the populated prod DB; builds
-a fresh dev DB). Take a backup first with the read-only
+**App-owned bootstrap.** Schema changes go in `deploy/02_schema.sql` (or a new
+numbered file added to `SCHEMA_FILES`), with a `SCHEMA_VERSION` bump, applied by
+`backend/src/bootstrap.py` at startup. The SQL is additive and idempotent by
+construction: `CREATE ... IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS`, never
+`DROP`, `TRUNCATE`, `ALTER COLUMN`, or an unfiltered `DELETE`. A destructive
+change needs a reviewed, separate file — a boot must not be able to do one by
+surprise. Take a backup first with the read-only
 `backend/scripts/backup_to_files.py` (CSV/Parquet) before any risky change.
 
 ---

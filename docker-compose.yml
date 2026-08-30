@@ -8,8 +8,9 @@
 services:
   web:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Repo root: the Dockerfile needs deploy/*.sql as well as backend/.
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: load_log_web
     command:
       - uv
@@ -25,8 +26,8 @@ services:
       # Data + login go through PostgREST and the shared auth service.
       POSTGREST_URL: ${POSTGREST_URL:-https://pgrest.tinkernet.me}
       AUTH_URL: ${AUTH_URL:-https://auth.tinkernet.me}
-      # Still needed so the entrypoint can run `alembic upgrade head` (Alembic
-      # connects to Postgres directly) before Streamlit starts.
+      # Superuser connection for the startup schema bootstrap (src/bootstrap.py).
+      # Application data still goes only through PostgREST.
       POSTGRES_URL: ${POSTGRES_URL}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB:-apps}

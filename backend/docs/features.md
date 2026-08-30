@@ -275,8 +275,9 @@ The PostgREST migration is complete:
    (habit completion + workout volume), per-set prefill, all data via PostgREST.
 3. ✅ `tui/` — Textual screens (clickable heatmaps, Enter-to-log form); logs in
    from `LOAD_LOG_USERNAME`/`LOAD_LOG_PASSWORD` and uses the same client.
-4. ✅ `alembic/` — `0001` idempotent baseline + `0002` users table; applied on
-   startup by `docker-entrypoint.sh`.
+4. ✅ `deploy/02_schema.sql` + `deploy/03_secure_users.sql` — idempotent schema,
+   applied by `src/bootstrap.py` from the app's own startup (replaced Alembic
+   2026-08).
 5. ✅ Shared `auth` service (`../postgrest-auth/`) + `postgrest` added to
    `docker_compose_projects.yaml`; SWAG confs for `pgrest`/`auth`.
 6. ✅ `scripts/create_user.py` (seed users) and `scripts/backup_to_files.py`

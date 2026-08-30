@@ -28,18 +28,19 @@ load-log/
 │   │   ├── web/
 │   │   │   └── app.py         # Streamlit; login gate + habits/workouts pages
 │   │   └── utils/             # display helpers
-│   ├── alembic/               # migrations (versions/), env.py targets load_log schema
-│   ├── alembic.ini
-│   ├── docker-entrypoint.sh   # runs `alembic upgrade head`, then the app
+│   │   └── bootstrap.py       # app-owned schema convergence, run at startup
+│   ├── docker-entrypoint.sh   # deliberately inert: `exec "$@"`, no migrations
 │   ├── scripts/
-│   │   ├── create_user.py     # seed load_log.users (bcrypt) — admin tool
+│   │   ├── create_user.py     # seed load_log.users (argon2id) — admin tool
 │   │   └── backup_to_files.py # read-only dump of all tables to CSV/Parquet
 │   ├── docs/                  # this directory: architecture / schema / features
 │   ├── pyproject.toml
 │   └── Dockerfile
 ├── docker-compose.yml         # portable web container → shared PostgREST
 ├── docker-compose.dev.yml     # self-contained local stack (own PG+PostgREST+auth)
-├── deploy/                    # server SQL + DEPLOY.md runbook + dev_init.sql
+├── deploy/                    # 02_schema.sql + 03_secure_users.sql (applied at
+│                              #   startup), 01_create_roles.sql (psql runbook),
+│                              #   dev_init.sql, historic/ (already run)
 ├── data/                      # personal goal markdown + data backups
 ├── CLAUDE.md
 ├── .env.example
@@ -58,8 +59,8 @@ is server infrastructure, like PostgREST, not part of load-log.
 | HTTP client    | requests           | `api_client` talks to PostgREST + auth         |
 | TUI            | textual            | modern, composable, keyboard-driven            |
 | Web UI         | streamlit          | fast to build, good charting, no JS needed     |
-| Migrations     | alembic            | versioned schema changes, run on startup       |
-| DB driver      | psycopg2-binary    | Alembic + `scripts/` only (never in app paths) |
+| Schema         | deploy/*.sql       | idempotent, applied by `bootstrap.py` at start  |
+| DB driver      | psycopg2-binary    | bootstrap + `scripts/` only (never in app paths)|
 | Runner         | uv                 | already in use                                 |
 
 ## Data Flow
@@ -84,11 +85,14 @@ interfaces only call its functions — they contain no SQL and no DB driver.
   `load_log.users` (credentials, never exposed via PostgREST).
 - Roles: `postgrest_authenticator` (login role PostgREST uses), `web_anon`
   (anonymous, no grants), `load_log_user` (the app role; the JWT `role` claim).
-- Schema changes go through Alembic (`alembic/versions/`), applied on container
-  startup by `docker-entrypoint.sh`. Baseline `0001` is idempotent
-  (`CREATE ... IF NOT EXISTS`); `0002` adds the users table.
-- `ALTER DATABASE apps SET search_path = load_log, public` keeps any
-  direct-DB tooling (Alembic, scripts) pointed at the right tables.
+- Schema changes go in `deploy/02_schema.sql` (and further numbered files),
+  applied by `src/bootstrap.py` from the app's own startup — the Streamlit script
+  and the TUI's `main()`, never the docker entrypoint. Version-gated on
+  `load_log.deploy_meta`, additive and idempotent only.
+- `ALTER DATABASE apps SET search_path = load_log, public` keeps direct-DB
+  tooling (bootstrap, scripts) pointed at the right tables. This is set on the
+  whole shared `apps` database, which is a fleet-level wart — see
+  `backlog/shared-apps-search-path.md`.
 
 ## Running Locally
 
@@ -111,7 +115,7 @@ override them in `.env` to point at the local dev stack.
 ```env
 APP_ENV=development
 
-# Alembic + scripts (direct DB) only:
+# Startup bootstrap + scripts (direct DB) only:
 POSTGRES_URL=<shared-postgres-host>
 POSTGRES_PORT=5432
 POSTGRES_DB=apps

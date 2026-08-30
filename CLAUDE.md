@@ -27,14 +27,23 @@ backend/
 │   ├── config.py      # env vars, walks up to find .env (loads it into os.environ)
 │   ├── api_client.py  # shared PostgREST + auth HTTP client (used by web AND tui)
 │   ├── main.py        # CLI entry point (stub)
+│   ├── bootstrap.py   # app-owned schema convergence, run from app startup
 │   ├── tui/           # Textual TUI (app.py, habits.py, workouts.py)
 │   ├── web/           # Streamlit app (app.py)
 │   └── utils/         # display helpers
-├── alembic/           # migrations (versions/), env.py targets the load_log schema
-├── alembic.ini
-├── docker-entrypoint.sh  # runs `alembic upgrade head` before the app starts
+├── conftest.py        # puts src/ on the path for the test suite
+├── tests/             # real-DB + real-PostgREST conformance tests
+├── docker-entrypoint.sh  # deliberately inert (`exec "$@"`) — no migrations here
 ├── scripts/           # one-off ops scripts (create_user.py, backup_to_files.py)
 └── docs/              # architecture / schema / features
+
+deploy/                # applied by src/bootstrap.py at startup:
+├── 02_schema.sql      #   tables, columns, grants
+└── 03_secure_users.sql#   I4 revokes on load_log.users
+                       # not applied by bootstrap:
+├── 01_create_roles.sql#   cluster-wide roles, psql runbook step (fleet-shared)
+├── dev_init.sql       #   dev stack's initdb mount
+└── historic/          #   one-shot SQL that already ran; must not run again
 ```
 
 The shared auth service is a **separate repo** (`../postgrest-auth/`), not part
@@ -61,8 +70,11 @@ cd backend && uv run mypy src/
 # Format
 cd backend && uv run black src/ && uv run isort src/
 
-# Apply migrations manually (normally the container entrypoint does this)
-cd backend && uv run alembic upgrade head
+# Converge the schema manually (normally the app does this at startup)
+cd backend && uv run python src/bootstrap.py
+
+# Real-dependency tests (hit the actual DB + PostgREST; no skips by design)
+cd backend && uv run pytest tests/
 ```
 
 ## Data Access
@@ -79,17 +91,18 @@ cd backend && uv run alembic upgrade head
   server's `PGRST_DB_SCHEMAS`, and future sibling apps should pin their own
   schema the same way.
 - Schema lives in the `load_log` schema of the shared `apps` database. See
-  `backend/docs/schema.md`. Schema changes go through **Alembic** migrations
-  (`backend/alembic/versions/`), applied on container startup by
-  `docker-entrypoint.sh`.
-- Direct Postgres connections remain only in ops tooling: Alembic, and the
+  `backend/docs/schema.md`. Schema changes go in the idempotent SQL under
+  `deploy/`, applied by `src/bootstrap.py` from the app's **own startup path**
+  (the Streamlit script and the TUI's `main()`) — never the docker entrypoint.
+- Direct Postgres connections remain only in ops tooling: the startup bootstrap, and the
   `scripts/` helpers (`create_user.py` seeds `load_log.users`;
   `backup_to_files.py` dumps tables to CSV/Parquet). These read `POSTGRES_*`
   from `.env`.
 
 Required `.env` keys for clients: `POSTGREST_URL`, `AUTH_URL` (both default to
 the tinkernet deployment), plus `LOAD_LOG_USERNAME` / `LOAD_LOG_PASSWORD` for the
-non-interactive TUI. `POSTGRES_*` keys are needed only for Alembic + scripts.
+non-interactive TUI. `POSTGRES_*` keys are needed only for the startup schema
+bootstrap and the `scripts/` helpers.
 
 ## Code Conventions
 
@@ -100,12 +113,17 @@ non-interactive TUI. `POSTGRES_*` keys are needed only for Alembic + scripts.
 
 ## Safety Rules (Database)
 
-- Schema changes go through Alembic migrations under
-  `backend/alembic/versions/`. Migrations must be **non-destructive** by default:
-  no `DROP`, `TRUNCATE`, `ALTER COLUMN`, or unfiltered `DELETE` in an upgrade
-  path without an explicit, reviewed reason. The baseline (`0001`) uses
-  `CREATE ... IF NOT EXISTS` so it is a no-op on the populated prod DB and builds
-  a fresh dev DB.
+- Schema changes go in `deploy/02_schema.sql` (or a new numbered file added to
+  `SCHEMA_FILES` in `src/bootstrap.py`), with a `SCHEMA_VERSION` bump. The SQL
+  must be **additive and idempotent**: `CREATE ... IF NOT EXISTS`,
+  `ADD COLUMN IF NOT EXISTS`. No `DROP`, `TRUNCATE`, `ALTER COLUMN`, or
+  unfiltered `DELETE` without an explicit, reviewed reason — a boot must not be
+  able to do a destructive change by surprise.
+- **Do not reintroduce a second migration mechanism.** Alembic was removed in
+  2026-08 precisely because a migration that only runs in the docker entrypoint
+  does not run for a bare `streamlit run`, the TUI, or a test — so the code and
+  the schema could disagree depending on how the app was launched. Every app on
+  this Postgres instance now converges the same way.
 - A verified CSV/Parquet backup exists under `data/backup_*/`; re-run
   `scripts/backup_to_files.py` (read-only) before any risky schema work.
 - `load_log.users` (password hashes) must never be granted to `load_log_user` /
@@ -131,5 +149,7 @@ non-interactive TUI. `POSTGRES_*` keys are needed only for Alembic + scripts.
 
 - Python 3.13 (`backend/.python-version`)
 - Package manager: `uv`
-- Docker: `backend/Dockerfile` builds the web/TUI image; the entrypoint runs
-  Alembic, then the (compose-overridable) command.
+- Docker: `backend/Dockerfile` builds the web/TUI image. Its build context is the
+  **repo root**, not `backend/`, because the image needs `deploy/*.sql` too — so
+  every `COPY` source is prefixed with `backend/`. The entrypoint is inert; the
+  app converges its own schema at startup.

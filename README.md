@@ -27,7 +27,7 @@ auth service to get a JWT, then read/write through PostgREST over HTTP:
 - PostgREST and the auth service are shared server infrastructure (added once,
   serve every app). The auth service lives in the sibling
   [`postgrest-auth`](https://github.com/ReadableCode/postgrest-auth) repo.
-- Direct Postgres connections remain only in ops tooling: Alembic migrations and
+- Direct Postgres connections remain only in the startup schema bootstrap and
   the `scripts/` helpers.
 
 For full design + schema details see [`backend/docs/`](backend/docs/),
@@ -64,7 +64,7 @@ AUTH_URL=https://auth.tinkernet.me
 LOAD_LOG_USERNAME=<your-username>
 LOAD_LOG_PASSWORD=<your-password>
 
-# Direct-DB tooling only (Alembic + scripts/). Not used by the app at runtime.
+# Direct-DB only: the startup schema bootstrap and scripts/. Not the data path.
 POSTGRES_URL=<host or LAN IP of the shared Postgres>
 POSTGRES_PORT=5432
 POSTGRES_USER=<user>
@@ -138,24 +138,40 @@ Two options:
   # App http://localhost:8505 · PostgREST http://localhost:3000 · Auth http://localhost:8000
   ```
 
-  First boot runs `alembic upgrade head` to create the schema + tables. If
-  PostgREST 404s a table right after, `docker compose -f docker-compose.dev.yml
-  restart postgrest` to refresh its schema cache.
+  First boot converges the schema: the app's own startup bootstrap applies
+  `deploy/02_schema.sql` and `deploy/03_secure_users.sql`, creating the tables.
+  Bootstrap ends with `NOTIFY pgrst` so PostgREST reloads its cache; if it still
+  404s a table right after, `docker compose -f docker-compose.dev.yml restart
+  postgrest`.
 
 On macOS, Docker runs through [colima](https://github.com/abiosoft/colima) — start
 it once per session: `colima start` (or `colima start --cpu 4 --memory 6`).
 
-## DB migrations (Alembic)
+## DB schema (app-owned bootstrap)
 
-Schema changes go through Alembic in [`backend/alembic/`](backend/alembic/),
-applied automatically on container startup by `docker-entrypoint.sh`. Baseline
-`0001` is idempotent (`CREATE ... IF NOT EXISTS` — a no-op on the populated prod
-DB, builds a fresh dev DB); `0002` adds the users table. Migrations are
-non-destructive by default. Run by hand if needed:
+Schema changes go in the idempotent SQL files under [`deploy/`](deploy/), applied
+by [`backend/src/bootstrap.py`](backend/src/bootstrap.py) from the app's own
+startup — the Streamlit script and the TUI's `main()`, never the docker
+entrypoint. Starting load-log any way at all converges the schema, so the code
+and the database cannot disagree because of how you launched it.
+
+Convergence is gated on an integer `SCHEMA_VERSION` stamped into
+`load_log.deploy_meta`, so it is a no-op on every boot after the first. The SQL
+is additive and idempotent only: `CREATE ... IF NOT EXISTS`,
+`ADD COLUMN IF NOT EXISTS`, never `DROP`, `TRUNCATE`, or `ALTER COLUMN`. A
+destructive change is a new numbered file plus a reviewed `SCHEMA_VERSION` bump —
+not something a boot can do by surprise.
+
+To add a column: edit `deploy/02_schema.sql` (or add `deploy/04_*.sql` and put it
+in `SCHEMA_FILES`), bump `SCHEMA_VERSION`, restart. Run it by hand if needed:
 
 ```bash
-cd backend && uv run alembic upgrade head
+cd backend && uv run python src/bootstrap.py
 ```
+
+This replaced Alembic in 2026-08. The four revisions that built the schema up to
+this point are in git history; `deploy/historic/` holds the one-shot SQL that has
+already run and must not run again.
 
 Take a read-only CSV/Parquet backup before any risky change:
 

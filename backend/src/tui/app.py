@@ -9,11 +9,11 @@ SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import config  # noqa: E402,F401  side effect: loads the repo .env into os.environ
-
 from textual.app import App  # noqa: E402
 
 import api_client  # noqa: E402
+import bootstrap  # noqa: E402
+import config  # noqa: E402,F401  side effect: loads the repo .env into os.environ
 from tui.habits import HabitsScreen  # noqa: E402
 from tui.workouts import WorkoutsScreen  # noqa: E402
 
@@ -88,6 +88,12 @@ class LoadLogApp(App):
 
 
 def main() -> None:
+    # Converge the schema before logging in, for the same reason the web app
+    # does it (I6): the TUI is a first-class entry point, so starting it must not
+    # depend on a container having started first. Best-effort — a schema problem
+    # is logged, not a reason the TUI refuses to open.
+    bootstrap.bootstrap_best_effort()
+
     # The TUI is just another PostgREST client: get a JWT from the auth service
     # with credentials from the environment (.env), then run. Non-interactive so
     # it works headless / scripted, identically to any other client.
