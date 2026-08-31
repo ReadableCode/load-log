@@ -13,5 +13,3 @@ system on the day they were written, and infrastructure moves on its own.
 
 | Issue | Found | Status |
 |-------|-------|--------|
-| [load-log set search_path on the whole shared apps database](shared-apps-search-path.md) | 2026-08-28 | open |
-| [black and isort disagree, and committed code satisfies neither](formatters-disagree.md) | 2026-08-28 | open |
