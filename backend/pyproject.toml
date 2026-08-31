@@ -41,3 +41,7 @@ extend-ignore = ["E203", "W503"]
 [tool.mypy]
 ignore_missing_imports = true
 show_error_codes = true
+
+[tool.isort]
+profile = "black"
+line_length = 120

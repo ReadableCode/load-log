@@ -55,7 +55,9 @@ class DayCell(Static):
     GLYPH_DEFAULT = "■"
     GLYPH_TODAY = "◉"
 
-    def __init__(self, day_date: date, completed: bool, is_today: bool, is_future: bool):
+    def __init__(
+        self, day_date: date, completed: bool, is_today: bool, is_future: bool
+    ):
         super().__init__(self.GLYPH_TODAY if is_today else self.GLYPH_DEFAULT)
         self.day_date = day_date
         self.completed = completed
@@ -234,14 +236,18 @@ class HabitDetailScreen(Screen):
 
     def refresh_view(self) -> None:
         today = date.today()
-        completions = set(api_client.get_completions(self.token, self.habit["id"], days=365))
+        completions = set(
+            api_client.get_completions(self.token, self.habit["id"], days=365)
+        )
         streak = api_client.get_current_streak(self.token, self.habit["id"])
 
         self.query_one("#streak", Static).update(
             f"Current streak: {streak} day{'s' if streak != 1 else ''}"
         )
 
-        start = today - timedelta(days=today.weekday()) - timedelta(weeks=HEATMAP_WEEKS - 1)
+        start = (
+            today - timedelta(days=today.weekday()) - timedelta(weeks=HEATMAP_WEEKS - 1)
+        )
 
         grid = self.query_one("#heatmap-grid", Horizontal)
         grid.remove_children()
@@ -280,7 +286,9 @@ class HabitDetailScreen(Screen):
         self._refresh_selection()
 
     def _refresh_selection(self) -> None:
-        completions = set(api_client.get_completions(self.token, self.habit["id"], days=365))
+        completions = set(
+            api_client.get_completions(self.token, self.habit["id"], days=365)
+        )
         for day, cell in self._cell_index.items():
             cell.completed = day in completions
             cell.set_status_class()

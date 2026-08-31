@@ -8,10 +8,11 @@ and generated files are never overwritten.
 Run:
     cd backend && uv run --with pyarrow python scripts/backup_to_files.py
 """
+
 import hashlib
 import json
 import os
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,8 +28,13 @@ def load_pg_env() -> dict:
     """Parse only POSTGRES_* keys out of the repo .env (a symlink full of other
     secrets — we touch nothing but the Postgres connection values)."""
     env_path = REPO_ROOT / ".env"
-    wanted = ("POSTGRES_URL", "POSTGRES_PORT", "POSTGRES_USER",
-              "POSTGRES_PASSWORD", "POSTGRES_DB")
+    wanted = (
+        "POSTGRES_URL",
+        "POSTGRES_PORT",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+    )
     out: dict[str, str] = {}
     for line in env_path.read_text().splitlines():
         line = line.strip()
@@ -40,8 +46,11 @@ def load_pg_env() -> dict:
             out[key] = val.strip().strip('"').strip("'")
     out.setdefault("POSTGRES_DB", "apps")
     out.setdefault("POSTGRES_PORT", "5432")
-    missing = [k for k in ("POSTGRES_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
-               if k not in out]
+    missing = [
+        k
+        for k in ("POSTGRES_URL", "POSTGRES_USER", "POSTGRES_PASSWORD")
+        if k not in out
+    ]
     if missing:
         raise SystemExit(f"Missing required env keys: {missing}")
     return out
@@ -74,23 +83,23 @@ def main() -> None:
         connect_timeout=10,
     )
     conn.set_session(readonly=True, autocommit=True)
-    print(f"Connected to {env['POSTGRES_URL']}:{env['POSTGRES_PORT']}/"
-          f"{env['POSTGRES_DB']} as {env['POSTGRES_USER']} (read-only)")
+    print(
+        f"Connected to {env['POSTGRES_URL']}:{env['POSTGRES_PORT']}/"
+        f"{env['POSTGRES_DB']} as {env['POSTGRES_USER']} (read-only)"
+    )
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = DATA_DIR / f"backup_{stamp}"
     out_dir.mkdir(parents=True, exist_ok=False)
 
     with conn.cursor() as cur:
-        cur.execute(
-            """
+        cur.execute("""
             SELECT table_schema, table_name
             FROM information_schema.tables
             WHERE table_type = 'BASE TABLE'
               AND table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name
-            """
-        )
+            """)
         tables = cur.fetchall()
 
     manifest = {
@@ -134,16 +143,18 @@ def main() -> None:
         ddl_lines.append(",\n".join(col_defs))
         ddl_lines.append(");\n")
 
-        manifest["tables"].append({
-            "schema": schema,
-            "table": table,
-            "rows": int(len(df)),
-            "columns": list(df.columns),
-            "csv": csv_path.name,
-            "parquet": pq_path.name,
-            "csv_sha256": sha256(csv_path),
-            "parquet_sha256": sha256(pq_path),
-        })
+        manifest["tables"].append(
+            {
+                "schema": schema,
+                "table": table,
+                "rows": int(len(df)),
+                "columns": list(df.columns),
+                "csv": csv_path.name,
+                "parquet": pq_path.name,
+                "csv_sha256": sha256(csv_path),
+                "parquet_sha256": sha256(pq_path),
+            }
+        )
         print(f"  {fq:<32} {len(df):>8} rows -> CSV + Parquet")
 
     (out_dir / "schema.sql").write_text("\n".join(ddl_lines))
@@ -153,8 +164,10 @@ def main() -> None:
     conn.close()
 
     print(f"\nBackup complete: {out_dir}")
-    print(f"  {len(manifest['tables'])} tables, "
-          f"{sum(t['rows'] for t in manifest['tables'])} total rows")
+    print(
+        f"  {len(manifest['tables'])} tables, "
+        f"{sum(t['rows'] for t in manifest['tables'])} total rows"
+    )
 
 
 if __name__ == "__main__":

@@ -83,9 +83,7 @@ class DayCell(Static):
         return "v4"
 
     def set_status_class(self) -> None:
-        self.remove_class(
-            "v0", "v1", "v2", "v3", "v4", "future", "today", "selected"
-        )
+        self.remove_class("v0", "v1", "v2", "v3", "v4", "future", "today", "selected")
         if self.is_future:
             self.add_class("future")
         else:
@@ -172,7 +170,9 @@ class WorkoutsScreen(Screen):
         volumes = api_client.get_volume_by_date(self.token, days=HEATMAP_WEEKS * 7 + 14)
         max_volume = max(volumes.values()) if volumes else 0.0
 
-        start = today - timedelta(days=today.weekday()) - timedelta(weeks=HEATMAP_WEEKS - 1)
+        start = (
+            today - timedelta(days=today.weekday()) - timedelta(weeks=HEATMAP_WEEKS - 1)
+        )
 
         grid = self.query_one("#heatmap-grid", Horizontal)
         grid.remove_children()
@@ -219,7 +219,9 @@ class WorkoutsScreen(Screen):
         if cell is not None:
             cell.add_class("selected")
 
-        volume = api_client.get_volume_by_date(self.token, days=400).get(self.selected_date, 0.0)
+        volume = api_client.get_volume_by_date(self.token, days=400).get(
+            self.selected_date, 0.0
+        )
         self.query_one("#selected-info", Static).update(
             f"Selected: {self.selected_date.strftime('%a %b %d, %Y')}  •  "
             f"volume: {volume:,.0f} lbs"
@@ -346,7 +348,8 @@ class WorkoutsScreen(Screen):
         if self.current_exercise_id is None:
             return
         today_sets = [
-            s for s in api_client.get_sets_for_date(self.token, self.selected_date)
+            s
+            for s in api_client.get_sets_for_date(self.token, self.selected_date)
             if s["exercise_id"] == self.current_exercise_id
         ]
         source = None
@@ -399,13 +402,16 @@ class WorkoutsScreen(Screen):
 
         self._refresh_set_list()
         self._refresh_selection()  # update volume tally on the heatmap
-        self._prefill_inputs()      # set 2/3/... reuses just-logged values
+        self._prefill_inputs()  # set 2/3/... reuses just-logged values
         reps_input.focus()
 
     def _start_editing(self, set_id: int) -> None:
         target = next(
-            (s for s in api_client.get_sets_for_date(self.token, self.selected_date)
-             if s["id"] == set_id),
+            (
+                s
+                for s in api_client.get_sets_for_date(self.token, self.selected_date)
+                if s["id"] == set_id
+            ),
             None,
         )
         if target is None:
