@@ -153,3 +153,21 @@ bootstrap and the `scripts/` helpers.
   **repo root**, not `backend/`, because the image needs `deploy/*.sql` too — so
   every `COPY` source is prefixed with `backend/`. The entrypoint is inert; the
   app converges its own schema at startup.
+
+## Working rules for this repo
+
+- The shared Postgres on the home server is production for several apps.
+  Never a destructive operation without confirmation, and tests use the
+  isolated `load_log_test` database set by `tests/conftest.py` before
+  `config.py` is imported.
+- Preferences: fast, lightweight, easy to read. Plain SQL over ORMs, `# %%`
+  section markers, functions returning `dict`, `list[dict]` or a DataFrame,
+  `uv` for packages. Pull only the keys a container needs from the shared
+  `.env`, never `env_file:` the whole thing.
+- TUI screens have exactly two header lines: a bold one-word title and a
+  muted one-sentence subtitle. The Footer is the single source of truth for
+  keyboard shortcuts; never repeat them as `[a]dd` text at the top (it reads
+  as broken titles in the VS Code terminal and is not clickable).
+- Docker on the Mac is colima (`colima start`, not a brew service) with the
+  v1 `docker-compose` binary; the VM bridges to the LAN so containers reach
+  the shared Postgres directly.
