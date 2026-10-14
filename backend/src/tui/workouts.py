@@ -215,9 +215,9 @@ class WorkoutsScreen(Screen):
     def _refresh_selection(self) -> None:
         for day, cell in self._cell_index.items():
             cell.set_status_class()
-        cell = self._cell_index.get(self.selected_date)
-        if cell is not None:
-            cell.add_class("selected")
+        selected = self._cell_index.get(self.selected_date)
+        if selected is not None:
+            selected.add_class("selected")
 
         volume = api_client.get_volume_by_date(self.token, days=400).get(
             self.selected_date, 0.0

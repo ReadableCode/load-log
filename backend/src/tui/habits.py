@@ -292,9 +292,9 @@ class HabitDetailScreen(Screen):
         for day, cell in self._cell_index.items():
             cell.completed = day in completions
             cell.set_status_class()
-        cell = self._cell_index.get(self.selected_date)
-        if cell is not None:
-            cell.add_class("selected")
+        selected = self._cell_index.get(self.selected_date)
+        if selected is not None:
+            selected.add_class("selected")
 
         is_done = self.selected_date in completions
         status = "✓ completed" if is_done else "✗ not done"
