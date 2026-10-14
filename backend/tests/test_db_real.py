@@ -156,8 +156,9 @@ def test_app_role_cannot_log_in(cur):
 
 def test_cluster_roles_exist(cur):
     """Bootstrap asserts these rather than creating them — they are cluster-wide
-    and owned by deploy/01_create_roles.sql, which every other app's bootstrap
-    also names in its error message."""
+    and created by the postgres-cluster-roles service in the Docker repo
+    (Docker/postgres/cluster_roles.sql), which every app's bootstrap names in
+    its error message."""
     cur.execute(
         "SELECT rolname FROM pg_roles WHERE rolname IN ('postgrest_authenticator', 'web_anon')"
     )

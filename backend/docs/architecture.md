@@ -9,8 +9,9 @@ shared auth service to get a JWT, then read/write through **PostgREST** over
 HTTPS. This makes the app multi-device and accessible outside the house, and
 establishes a reusable pattern for future apps.
 
-See `../../migration_plan.md` for the full design and `../../deploy/DEPLOY.md`
-for the server runbook.
+The schema converges from the app's startup bootstrap (`src/bootstrap.py`); the
+cluster-wide PostgREST roles come from the `postgres-cluster-roles` service in
+the Docker repo (`Docker/postgres/cluster_roles.sql`).
 
 ## Project Structure
 
@@ -39,8 +40,7 @@ load-log/
 ├── docker-compose.yml         # portable web container → shared PostgREST
 ├── docker-compose.dev.yml     # self-contained local stack (own PG+PostgREST+auth)
 ├── deploy/                    # 02_schema.sql + 03_secure_users.sql (applied at
-│                              #   startup), 01_create_roles.sql (psql runbook),
-│                              #   dev_init.sql, historic/ (already run)
+│                              #   startup), dev_init.sql, historic/ (already run)
 ├── data/                      # personal goal markdown + data backups
 ├── CLAUDE.md
 ├── .env.example
@@ -151,9 +151,11 @@ own DB in production:
 | auth (shared)       | 8006      | 8000           |
 | load-log-streamlit  | 8505      | 8505           |
 
-The full, ordered deploy + verification steps live in **`../../deploy/DEPLOY.md`**
-(secrets, role/schema SQL, proxy confs, rebuild commands, user seeding, checks).
-Do not duplicate that runbook here.
+There is no hand-run deploy SQL. The app applies `deploy/02_schema.sql` and
+`deploy/03_secure_users.sql` itself at startup (`src/bootstrap.py`), and the
+cluster-wide PostgREST roles come from the `postgres-cluster-roles` service in
+the Docker repo (`Docker/postgres/cluster_roles.sql`). Deploy commands live in
+`~/GitHub/Docker/README.md`.
 
 ## Code Style Rules
 

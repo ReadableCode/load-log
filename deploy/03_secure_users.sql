@@ -1,5 +1,7 @@
 -- 03_secure_users.sql — keep the credentials table unreachable through
--- PostgREST (I4). Applied by backend/src/bootstrap.py after 02_schema.sql.
+-- PostgREST (I4). Applied by backend/src/bootstrap.py at startup, after
+-- 02_schema.sql. Running this file by hand with psql might work, but it is not
+-- the intended use: change it here and let the app apply it.
 --
 -- The shared postgrest-auth service reads load_log.users directly as the
 -- superuser to verify a login, so the PostgREST-facing roles need no grant on

@@ -1,5 +1,7 @@
 -- 02_schema.sql — the load_log schema. Applied by backend/src/bootstrap.py at
--- app startup, version-gated on load_log.deploy_meta (I6).
+-- app startup, version-gated on load_log.deploy_meta (I6). Running this file by
+-- hand with psql might work, but it is not the intended use: change it here and
+-- let the app apply it.
 --
 -- Idempotent and additive only (I7): CREATE ... IF NOT EXISTS and
 -- ADD COLUMN IF NOT EXISTS. Never DROP, TRUNCATE, or ALTER COLUMN — a

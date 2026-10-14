@@ -30,8 +30,8 @@ auth service to get a JWT, then read/write through PostgREST over HTTP:
 - Direct Postgres connections remain only in the startup schema bootstrap and
   the `scripts/` helpers.
 
-For full design + schema details see [`backend/docs/`](backend/docs/),
-[`CLAUDE.md`](CLAUDE.md), and the server runbook in [`deploy/`](deploy/).
+For full design + schema details see [`backend/docs/`](backend/docs/) and
+[`CLAUDE.md`](CLAUDE.md).
 
 ## Prerequisites
 
@@ -193,6 +193,7 @@ uv run mypy src/
 The shared `postgrest` + `auth` services and the `load-log-streamlit` service live
 in `~/GitHub/Docker/docker_compose_projects.yaml`, reverse-proxied by SWAG at
 `pgrest.tinkernet.me`, `auth.tinkernet.me`, and `loadlog.tinkernet.me`. The
-ordered server runbook (roles, schema move, rebuild, verification) is in
-[`deploy/`](deploy/); deploy commands and the systemd unit are in
-`~/GitHub/Docker/README.md`.
+app applies its own schema from [`deploy/`](deploy/) at startup; the
+cluster-wide PostgREST roles come from the `postgres-cluster-roles` service in
+the same compose file (`Docker/postgres/cluster_roles.sql`). Deploy commands and
+the systemd unit are in `~/GitHub/Docker/README.md`.

@@ -16,8 +16,10 @@ progressive overload guidance.
 Architecture: each client logs in through the shared auth service
 (`https://auth.tinkernet.me`) to get a JWT, then talks to PostgREST
 (`https://pgrest.tinkernet.me`) with `Authorization: Bearer <jwt>`. Postgres
-enforces access via the `load_log_user` role. See `migration_plan.md` for the
-full design and `deploy/DEPLOY.md` for the server runbook.
+enforces access via the `load_log_user` role. The schema converges from the
+app's startup bootstrap (`backend/src/bootstrap.py`); the cluster-wide roles
+come from the `postgres-cluster-roles` service in the Docker repo
+(`Docker/postgres/cluster_roles.sql`).
 
 ## Source Layout
 
@@ -41,7 +43,6 @@ deploy/                # applied by src/bootstrap.py at startup:
 ├── 02_schema.sql      #   tables, columns, grants
 └── 03_secure_users.sql#   I4 revokes on load_log.users
                        # not applied by bootstrap:
-├── 01_create_roles.sql#   cluster-wide roles, psql runbook step (fleet-shared)
 ├── dev_init.sql       #   dev stack's initdb mount
 └── historic/          #   one-shot SQL that already ran; must not run again
 ```

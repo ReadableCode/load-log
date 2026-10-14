@@ -18,13 +18,11 @@
 data/
 
 # Local compose stacks, and the deploy SQL the image does not apply:
-# 01_create_roles.sql is a psql runbook step for cluster-wide roles, dev_init.sql
-# is the dev stack's initdb mount, and historic/ has already run. Only
-# 02_schema.sql and 03_secure_users.sql are COPYed.
+# dev_init.sql is the dev stack's initdb mount, and historic/ has already run.
+# Only 02_schema.sql and 03_secure_users.sql are COPYed.
 docker-compose.yml
 docker-compose.dev.yml
 deploy/dev_init.sql
-deploy/01_create_roles.sql
 deploy/historic/
 
 # Root-level docs (README, CLAUDE.md, the conformance plan). This pattern is

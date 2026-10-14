@@ -63,9 +63,9 @@ def _find_deploy_dir() -> str:
 # passwordless (I3) — the database is the security boundary, not the app.
 #
 # postgrest_authenticator and web_anon are deliberately NOT created here. They
-# are cluster-wide, shared by every app on this instance, and owned by
-# deploy/01_create_roles.sql. Bootstrap asserts they exist and fails loudly if
-# they do not.
+# are cluster-wide, shared by every app on this instance, and created by the
+# postgres-cluster-roles service in the Docker repo (Docker/postgres/cluster_roles.sql).
+# Bootstrap asserts they exist and fails loudly if they do not.
 ROLE_SQL = """
 DO $$
 BEGIN
@@ -133,7 +133,8 @@ def apply_schema(force: bool = False) -> bool:
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
                 if cur.fetchone() is None:
                     raise RuntimeError(
-                        f"cluster role {role!r} missing — run load-log/deploy/01_create_roles.sql first"
+                        f"cluster role {role!r} missing: it is created by the postgres-cluster-roles service "
+                        "in the Docker repo (Docker/postgres/cluster_roles.sql)"
                     )
 
             cur.execute(ROLE_SQL)
