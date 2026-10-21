@@ -38,10 +38,11 @@ load-log/
 │   ├── docs/                  # this directory: architecture / schema / features
 │   ├── pyproject.toml
 │   └── Dockerfile
-├── docker-compose.yml         # portable web container → shared PostgREST
-├── docker-compose.dev.yml     # self-contained local stack (own PG+PostgREST)
+├── compose.yaml               # self-contained stack (own PG+PostgREST+web app)
+├── compose.external.yaml      # web container alone → existing PG+PostgREST
 ├── deploy/                    # 02_schema.sql + 03_secure_users.sql (applied at
-│                              #   startup), dev_init.sql, historic/ (already run)
+│                              #   startup), compose.elitedesk.yaml (the server's
+│                              #   service fragment), historic/ (already run)
 ├── data/                      # personal goal markdown + data backups
 ├── CLAUDE.md
 ├── .env.example
@@ -92,12 +93,12 @@ superuser connection (`bootstrap.superuser_dsn()`).
   (anonymous, no grants), `load_log_user` (the app role; the JWT `role` claim).
 - Schema changes go in `deploy/02_schema.sql` (and further numbered files),
   applied by `src/bootstrap.py` from the app's own startup — the Streamlit script
-  and the TUI's `main()`, never the docker entrypoint. Version-gated on
+  (first page load), the TUI's `main()` and `scripts/create_user.py`, never the
+  docker entrypoint. Version-gated on
   `load_log.deploy_meta`, additive and idempotent only.
-- `ALTER DATABASE apps SET search_path = load_log, public` keeps direct-DB
-  tooling (bootstrap, scripts) pointed at the right tables. This is set on the
-  whole shared `apps` database, which is a fleet-level wart — see
-  `backlog/shared-apps-search-path.md`.
+- Nothing sets a `search_path`: the SQL in `deploy/` and `scripts/` qualifies
+  every object (`load_log.habits`), and PostgREST requests pin the schema with
+  `Accept-Profile` / `Content-Profile`.
 
 ## Running Locally
 
@@ -108,13 +109,15 @@ cd backend && PYTHONPATH=src uv run streamlit run src/web/app.py
 # TUI (reads LOAD_LOG_USERNAME / LOAD_LOG_PASSWORD from .env to log in)
 cd backend && PYTHONPATH=src uv run python -m tui.app
 
-# Fully self-contained local stack (own Postgres + PostgREST):
-docker compose -f docker-compose.dev.yml up --build
+# Fully self-contained stack (own Postgres + PostgREST + web app), from the
+# repo root with three secrets in .env (README "Run it with Docker"):
+docker compose up --build
 ```
 
 Both clients default `POSTGREST_URL` to the tinkernet deployment; override it
-(and `POSTGRES_*`, `POSTGREST_JWT_SECRET`) in `.env` to point at the local dev
-stack.
+(and `POSTGRES_*`, `POSTGREST_JWT_SECRET`) in `.env` to point at your own
+Postgres and PostgREST. `compose.yaml` publishes only the web app's port, so it
+is not a backend for the bare-metal clients.
 
 ## Configuration (.env at repo root)
 
@@ -140,14 +143,25 @@ environment.
 
 ## Docker Compose Deployment
 
-Two compose setups, both ultimately backed by the shared Postgres on the
-EliteDesk host (`Docker/docker_compose_projects.yaml`) — load-log never hosts its
-own DB in production:
+Three compose setups. In production load-log never hosts its own DB: the
+EliteDesk deployment is backed by the shared Postgres on the EliteDesk host
+(`Docker/docker_compose_projects.yaml`).
 
-1. **Portable** — `docker-compose.yml` at the repo root: just the Streamlit
-   container, pointed at the shared PostgREST (defaults to tinkernet) and Postgres.
-2. **EliteDesk deployment** — the shared `postgrest` service and the
-   `load-log-streamlit` service in `docker_compose_projects.yaml`.
+1. **Self-contained** (`compose.yaml` at the repo root): `postgres:17` (data in
+   the `postgres_data` volume), `postgrest/postgrest:v16.5` and the
+   `load-log-streamlit` web container, with only the web port published
+   (`LOAD_LOG_PORT`, default 8505). `.env` supplies three secrets:
+   `POSTGRES_PASSWORD`, `POSTGREST_DB_PASSWORD`, `POSTGREST_JWT_SECRET`. On
+   first start an inline init script creates only the two cluster roles
+   (`postgrest_authenticator`, `web_anon`); the app's bootstrap creates the
+   schema, `load_log_user`, the tables and the grants.
+2. **External** (`compose.external.yaml`): just the Streamlit container,
+   pointed at an existing PostgREST and Postgres from `POSTGREST_URL` /
+   `POSTGRES_*` in `.env`, with `POSTGREST_JWT_SECRET` for login. There is no
+   default URL; every required setting must be set.
+3. **EliteDesk deployment**: the shared `postgrest` service and the
+   `load-log-streamlit` service in `docker_compose_projects.yaml` (the service
+   fragment is `deploy/compose.elitedesk.yaml`).
 
 ### Port assignments
 

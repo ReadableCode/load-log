@@ -62,13 +62,56 @@ PostgREST over HTTP:
 For full design and schema details see [`backend/docs/`](backend/docs/) and
 [`CLAUDE.md`](CLAUDE.md).
 
-## Prerequisites
+## Run it with Docker
+
+`compose.yaml` is a self-contained stack: Postgres, PostgREST and the web app.
+Nothing else needs to be installed or running. Put three secrets in a `.env`
+file next to it (letters and digits only, since they end up in a connection
+URL and SQL):
+
+```sh
+git clone https://github.com/ReadableCode/load-log.git
+cd load-log
+printf 'POSTGRES_PASSWORD=%s\nPOSTGREST_DB_PASSWORD=%s\nPOSTGREST_JWT_SECRET=%s\n' \
+    "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
+docker compose up --build
+```
+
+There is no sign-up page, so create your account from a second terminal (it
+writes one row to `load_log.users` with an argon2id hash and refuses to
+overwrite an existing username):
+
+```sh
+docker compose exec load-log-streamlit uv run python scripts/create_user.py --username you --password 'your-password'
+```
+
+Then open http://localhost:8505 and log in. On its first start Postgres
+creates the two roles PostgREST connects with; the app creates its own schema,
+its `load_log_user` role and its tables, whether the page or `create_user.py`
+runs first. Data lives in the `postgres_data` volume. Only the web app's port
+is published; set `LOAD_LOG_PORT` in `.env` to use another host port.
+Bootstrap ends with `NOTIFY pgrst` so PostgREST reloads its cache; if it still
+404s a table right after the first boot, `docker compose restart postgrest`.
+
+Already running Postgres and PostgREST? `compose.external.yaml` runs the app
+alone against them; its header lists the `.env` settings and the two roles
+your Postgres needs:
+
+```sh
+docker compose -f compose.external.yaml up --build
+```
+
+On macOS, Docker runs through [colima](https://github.com/abiosoft/colima). Start
+it once per session: `colima start` (or `colima start --cpu 4 --memory 6`).
+
+## Prerequisites (without Docker)
 
 - Python 3.13 (pinned in `backend/.python-version`)
 - [uv](https://docs.astral.sh/uv/): `brew install uv` (macOS) or
   `curl -LsSf https://astral.sh/uv/install.sh | sh` (Linux)
-- A reachable PostgREST and Postgres (your own, or the self-contained dev stack
-  below)
+- A reachable PostgREST and Postgres of your own (the Docker stack above
+  publishes only the web app, so it is not a backend for the bare-metal
+  clients)
 - A login user in `load_log.users` (create one with `scripts/create_user.py`,
   below)
 
@@ -88,7 +131,7 @@ cd backend && uv sync
 ```env
 # Clients (web + TUI). Without it set, the code falls back to the author's own
 # deployment (default in backend/src/api_client.py); set it to point at your
-# server or a local dev stack.
+# server.
 POSTGREST_URL=https://pgrest.example.com
 
 # PostgREST's JWT secret: login (web + TUI) signs the session JWT with it.
@@ -107,8 +150,9 @@ POSTGRES_PASSWORD=<password>
 POSTGRES_DB=apps
 ```
 
-Create your login user (writes one row to `load_log.users` with an argon2id
-hash; refuses to overwrite an existing username):
+Create your login user (converges the schema first, then writes one row to
+`load_log.users` with an argon2id hash; refuses to overwrite an existing
+username):
 
 ```bash
 cd backend && uv run python scripts/create_user.py --username you --password 'your-password'
@@ -126,8 +170,8 @@ PYTHONPATH=src uv run streamlit run src/web/app.py
 PYTHONPATH=src uv run python -m tui.app
 ```
 
-Both use `POSTGREST_URL`, `POSTGRES_*` and `POSTGREST_JWT_SECRET` from `.env`;
-point them at a local dev stack to develop without a server. [`backend/dev/`](backend/dev/README.md) has a
+Both use `POSTGREST_URL`, `POSTGRES_*` and `POSTGREST_JWT_SECRET` from `.env`.
+To develop without a server, [`backend/dev/`](backend/dev/README.md) has a
 stub `api_client` with synthetic data for previewing the web UI with no network.
 
 ### TUI cheatsheet
@@ -159,38 +203,12 @@ Workouts log-a-set form:
 The Footer at the bottom of every screen is the source of truth for the
 keyboard shortcuts available right now, and each Footer entry is clickable.
 
-## Run locally in Docker
-
-Two options:
-
-- **`docker-compose.yml`** (repo root): just the Streamlit container, pointed at
-  the shared PostgREST and Postgres from `POSTGREST_URL` / `POSTGRES_*`, with
-  `POSTGREST_JWT_SECRET` for login. Bring it up with
-  `docker-compose up -d --build`; web on `http://localhost:8505`.
-- **`docker-compose.dev.yml`**: a fully self-contained stack (its own throwaway
-  Postgres + PostgREST + Streamlit), so you can develop without touching a
-  server:
-
-  ```bash
-  docker compose -f docker-compose.dev.yml up --build
-  # App http://localhost:8505 · PostgREST http://localhost:3000
-  ```
-
-  First boot converges the schema: the app's own startup bootstrap applies
-  `deploy/02_schema.sql` and `deploy/03_secure_users.sql`, creating the tables.
-  Bootstrap ends with `NOTIFY pgrst` so PostgREST reloads its cache; if it still
-  404s a table right after, `docker compose -f docker-compose.dev.yml restart
-  postgrest`.
-
-On macOS, Docker runs through [colima](https://github.com/abiosoft/colima). Start
-it once per session: `colima start` (or `colima start --cpu 4 --memory 6`).
-
 ## DB schema (app-owned bootstrap)
 
 Schema changes go in the idempotent SQL files under [`deploy/`](deploy/), applied
 by [`backend/src/bootstrap.py`](backend/src/bootstrap.py) from the app's own
-startup: the Streamlit script and the TUI's `main()`, never the docker
-entrypoint. Starting load-log any way at all converges the schema, so the code
+startup: the Streamlit script (on its first page load), the TUI's `main()`
+and `scripts/create_user.py`, never the docker entrypoint. Starting load-log any way at all converges the schema, so the code
 and the database cannot disagree because of how you launched it. A failed
 bootstrap is logged and the app serves anyway; the next boot retries.
 

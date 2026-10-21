@@ -1,18 +1,22 @@
 # %%
 """Insert a user into load_log.users with an argon2id password hash.
 
-Run AFTER the users table exists (the app's startup bootstrap creates it). Login
-reads this table over the app's superuser connection (postgrest-auth library)
-to verify credentials and mint JWTs. The hash comes from the same library:
-argon2id is the standard; pre-existing bcrypt rows keep verifying and get
-rehashed on the next successful login.
+Converges the schema first (bootstrap.apply_schema, a no-op once it is current),
+like every other way of starting load-log. The web app only converges when its
+page is first opened, so without this the first account on a fresh database
+would fail on a missing load_log.users. Login reads this table over the app's
+superuser connection (postgrest-auth library) to verify credentials and mint
+JWTs. The hash comes from the same library: argon2id is the standard;
+pre-existing bcrypt rows keep verifying and get rehashed on the next successful
+login.
 
 Run:
     cd backend && uv run python scripts/create_user.py --username jason --password 'hunter2'
 
-Reads the POSTGRES_* env vars (same ones config.py / db.py use). Writes a single
-row via parameterized SQL — no other mutation. If the username already exists
-(UNIQUE violation) it reports and exits non-zero rather than overwriting.
+Reads the POSTGRES_* env vars (same ones config.py uses, including the repo
+.env it loads). Besides the schema convergence it writes a single row via
+parameterized SQL, no other mutation. If the username already exists (UNIQUE
+violation) it reports and exits non-zero rather than overwriting.
 """
 
 # %%
@@ -27,6 +31,8 @@ import psycopg2
 
 # allow `uv run python scripts/create_user.py` from backend/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+import bootstrap  # noqa: E402  (side effect: config loads the repo .env)
 
 # %%
 # Config #
@@ -85,6 +91,7 @@ def main() -> None:
         help="Plaintext password (argon2id-hashed before storage)",
     )
     args = parser.parse_args()
+    bootstrap.apply_schema()
     create_user(args.username, args.password)
 
 

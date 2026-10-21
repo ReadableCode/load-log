@@ -9,8 +9,8 @@
 --
 -- Two audiences, and they need different statements:
 --
---   * A fresh database (the local dev stack, a clone) — built entirely by the
---     CREATE TABLE blocks below.
+--   * A fresh database (compose.yaml's bundled Postgres, a clone) — built
+--     entirely by the CREATE TABLE blocks below.
 --   * The live elitedesk database — every table here already exists, created by
 --     Alembic revisions 0001-0003 before this file replaced them. Every CREATE
 --     is skipped there, and only the users ADD COLUMN statements do anything.

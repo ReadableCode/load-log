@@ -45,8 +45,11 @@ deploy/                # applied by src/bootstrap.py at startup:
 ├── 02_schema.sql      #   tables, columns, grants
 └── 03_secure_users.sql#   I4 revokes on load_log.users
                        # not applied by bootstrap:
-├── dev_init.sql       #   dev stack's initdb mount
+├── compose.elitedesk.yaml # the author's server's service fragment
 └── historic/          #   one-shot SQL that already ran; must not run again
+
+compose.yaml           # self-contained stack: Postgres + PostgREST + web app
+compose.external.yaml  # the web app alone against an existing Postgres + PostgREST
 ```
 
 Login comes from the postgrest-auth library (separate repo, `../postgrest-auth/`),
@@ -102,7 +105,8 @@ cd backend && uv run pytest tests/
 - Schema lives in the `load_log` schema of the shared `apps` database. See
   `backend/docs/schema.md`. Schema changes go in the idempotent SQL under
   `deploy/`, applied by `src/bootstrap.py` from the app's **own startup path**
-  (the Streamlit script and the TUI's `main()`) — never the docker entrypoint.
+  (the Streamlit script on its first page load, the TUI's `main()`, and
+  `scripts/create_user.py`) — never the docker entrypoint.
 - Direct Postgres connections remain only in login (`api_client.login` reads
   `load_log.users`) and ops tooling: the startup bootstrap, and the
   `scripts/` helpers (`create_user.py` seeds `load_log.users`;
@@ -165,6 +169,11 @@ startup schema bootstrap and the `scripts/` helpers.
   **repo root**, not `backend/`, because the image needs `deploy/*.sql` too — so
   every `COPY` source is prefixed with `backend/`. The entrypoint is inert; the
   app converges its own schema at startup.
+- `compose.yaml` runs the whole stack from a clone with three secrets in `.env`
+  (`POSTGRES_PASSWORD`, `POSTGREST_DB_PASSWORD`, `POSTGREST_JWT_SECRET`): its
+  Postgres init creates only `postgrest_authenticator` and `web_anon`, and the
+  app's bootstrap creates everything else. `compose.external.yaml` is the app
+  alone. The server keeps using `deploy/compose.elitedesk.yaml`.
 
 ## Working rules for this repo
 

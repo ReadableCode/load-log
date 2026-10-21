@@ -1,0 +1,85 @@
+# Self-contained load-log: its own Postgres, PostgREST and the Streamlit web
+# app in one stack, so it runs with nothing else installed. Same architecture
+# as production: login runs in-process (postgrest-auth library) and signs with
+# the secret PostgREST verifies. Put three secrets in a .env file next to this
+# one (letters and digits only, see README "Run it with Docker"), then:
+#
+#   docker compose up --build        and open http://localhost:8505
+#
+# On its first start Postgres creates the two roles PostgREST connects with
+# (postgrest_roles below); the app then creates its own schema, its
+# load_log_user role and its tables (src/bootstrap.py, run from the app's own
+# startup and from scripts/create_user.py). Data lives in the postgres_data
+# volume.
+#
+# compose.external.yaml runs the app alone against a Postgres and PostgREST
+# you already have. deploy/compose.elitedesk.yaml is the author's server.
+name: load-log
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: apps
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    configs:
+      - source: postgrest_roles
+        target: /docker-entrypoint-initdb.d/00_postgrest_roles.sql
+    healthcheck:
+      # TCP, so it only passes once the first-start init has finished
+      test: ["CMD", "pg_isready", "-h", "localhost", "-U", "postgres", "-d", "apps"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
+  postgrest:
+    image: postgrest/postgrest:v16.5
+    environment:
+      PGRST_DB_URI: postgres://postgrest_authenticator:${POSTGREST_DB_PASSWORD:?set POSTGREST_DB_PASSWORD in .env}@postgres:5432/apps
+      PGRST_DB_SCHEMAS: load_log
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_JWT_SECRET: ${POSTGREST_JWT_SECRET:?set POSTGREST_JWT_SECRET in .env (32+ characters)}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  load-log-streamlit:
+    build:
+      # Repo root: the Dockerfile needs deploy/*.sql as well as backend/.
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      POSTGREST_URL: http://postgrest:3000
+      # PostgREST's secret: login signs session tokens with it
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET}
+      # superuser connection: login (it reads load_log.users), the startup
+      # schema bootstrap and scripts/. Application data still goes only
+      # through PostgREST.
+      POSTGRES_URL: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: apps
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${LOAD_LOG_PORT:-8505}:8505"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    restart: unless-stopped
+
+configs:
+  postgrest_roles:
+    content: |
+      CREATE ROLE postgrest_authenticator LOGIN NOINHERIT PASSWORD '${POSTGREST_DB_PASSWORD}';
+      CREATE ROLE web_anon NOLOGIN;
+      GRANT web_anon TO postgrest_authenticator;
+
+volumes:
+  postgres_data:

@@ -21,7 +21,7 @@ file_dir = os.path.dirname(
 
 # Walk up from this file looking for a .env. Stops at the filesystem root.
 # In Docker the container has no .env file — it relies on `environment:` from
-# docker-compose, so a missing .env is silently fine.
+# the compose file, so a missing .env is silently fine.
 cur = file_dir
 for _ in range(6):
     candidate = os.path.join(cur, ".env")

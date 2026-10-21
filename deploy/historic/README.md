@@ -13,6 +13,7 @@ idempotent files in `deploy/` no longer show.
 | `02_migrate_schema.sql` | 2026-06-21 | Moved the four data tables out of `public` into the `load_log` schema with `ALTER TABLE ... SET SCHEMA`, and granted `load_log_user` on them. |
 
 `02_migrate_schema.sql` also ran
-`ALTER DATABASE apps SET search_path = load_log, public`, which is still in
-effect and now applies to every app sharing the `apps` database. See
-`backlog/shared-apps-search-path.md`.
+`ALTER DATABASE apps SET search_path = load_log, public`, which applied to
+every app sharing the `apps` database. That default was dropped in 2026-08
+(the backlog entry for it closed in commit 3575384), and nothing in this repo
+sets a `search_path` any more.

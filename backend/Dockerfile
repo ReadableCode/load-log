@@ -13,9 +13,8 @@ RUN apt-get update && \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # The build context is the REPO ROOT, not backend/, because the schema files the
-# app applies at startup live in deploy/ at the top level (beside the dev stack's
-# initdb mount). Everything below is therefore
-# prefixed with backend/.
+# app applies at startup live in deploy/ at the top level. Everything below is
+# therefore prefixed with backend/.
 COPY backend/pyproject.toml backend/uv.lock ./
 
 RUN uv sync --frozen --no-dev

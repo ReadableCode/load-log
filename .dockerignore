@@ -18,11 +18,10 @@
 data/
 
 # Local compose stacks, and the deploy SQL the image does not apply:
-# dev_init.sql is the dev stack's initdb mount, and historic/ has already run.
-# Only 02_schema.sql and 03_secure_users.sql are COPYed.
-docker-compose.yml
-docker-compose.dev.yml
-deploy/dev_init.sql
+# historic/ has already run. Only 02_schema.sql and 03_secure_users.sql are
+# COPYed.
+compose.yaml
+compose.external.yaml
 deploy/historic/
 
 # Root-level docs (README, CLAUDE.md, the conformance plan). This pattern is
