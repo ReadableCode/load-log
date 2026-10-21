@@ -61,7 +61,7 @@ def _gen_sets():
 _SETS = _gen_sets()
 
 
-def login(username, password):
+def login(username, password, client_ip=None):
     return "stub-jwt"
 
 
@@ -83,6 +83,10 @@ def toggle_completion(token, habit_id, target_date):
 
 def add_habit(token, name):
     return {}
+
+
+def move_habit(token, habit_id, direction):
+    return False
 
 
 def delete_habit(token, habit_id):
@@ -182,6 +186,10 @@ def get_exercise_history(token, exercise_id, limit_days=365):
     if not df.empty:
         df["workout_date"] = pd.to_datetime(df["workout_date"])
     return df
+
+
+def get_workout_dates(token, days=365):
+    return sorted({s["workout_date"] for s in _SETS})
 
 
 def get_volume_by_date(token, days=365):
