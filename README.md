@@ -90,8 +90,12 @@ creates the two roles PostgREST connects with; the app creates its own schema,
 its `load_log_user` role and its tables, whether the page or `create_user.py`
 runs first. Data lives in the `postgres_data` volume. Only the web app's port
 is published; set `LOAD_LOG_PORT` in `.env` to use another host port.
-Bootstrap ends with `NOTIFY pgrst` so PostgREST reloads its cache; if it still
-404s a table right after the first boot, `docker compose restart postgrest`.
+
+On the very first boot PostgREST starts before the schema exists and retries
+with a growing delay, so for a few seconds after the schema appears requests
+can get a 503 (`PGRST002`); it recovers on its own. Bootstrap ends with
+`NOTIFY pgrst` so PostgREST reloads its cache; if it still 404s a table after
+that, `docker compose restart postgrest`.
 
 Already running Postgres and PostgREST? `compose.external.yaml` runs the app
 alone against them; its header lists the `.env` settings and the two roles
