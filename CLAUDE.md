@@ -189,6 +189,6 @@ startup schema bootstrap and the `scripts/` helpers.
   muted one-sentence subtitle. The Footer is the single source of truth for
   keyboard shortcuts; never repeat them as `[a]dd` text at the top (it reads
   as broken titles in the VS Code terminal and is not clickable).
-- Docker on the Mac is colima (`colima start`, not a brew service) with the
-  v1 `docker-compose` binary; the VM bridges to the LAN so containers reach
-  the shared Postgres directly.
+- The Mac has no Docker. The compose files need Docker Compose v2.23 or
+  newer (the inline init script); test them on a machine that has it, such
+  as jasonzephyrus.
