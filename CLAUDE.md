@@ -158,9 +158,9 @@ bootstrap and the `scripts/` helpers.
 ## Working rules for this repo
 
 - The shared Postgres on the home server is production for several apps.
-  Never a destructive operation without confirmation, and tests use the
-  isolated `load_log_test` database set by `tests/conftest.py` before
-  `config.py` is imported.
+  Never a destructive operation without confirmation. The tests run against
+  the Postgres and PostgREST configured in `.env` and are read-only by design;
+  keep any new test read-only too.
 - Preferences: fast, lightweight, easy to read. Plain SQL over ORMs, `# %%`
   section markers, functions returning `dict`, `list[dict]` or a DataFrame,
   `uv` for packages. Pull only the keys a container needs from the shared
