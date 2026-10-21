@@ -241,8 +241,8 @@ because `load_log` is the default schema). Every request carries
 `Authorization: Bearer <jwt>` and Postgres enforces access via `load_log_user`.
 
 ```text
-# Auth (shared service)
-POST   https://auth.tinkernet.me/token        {schema, username, password} → {token}
+# Login (in-process: postgrest-auth library over the superuser connection)
+api_client.login(username, password, client_ip=None) → JWT (role=load_log_user)
 
 # Data (PostgREST), with Authorization: Bearer <token>
 GET    /habits?select=*                        list habits
@@ -270,7 +270,8 @@ Composite behaviors (next `set_number`, renumber-after-delete, volume totals,
 
 The PostgREST migration is complete:
 
-1. ✅ `api_client.py` — shared PostgREST + auth HTTP client (web and TUI).
+1. ✅ `api_client.py` — login (postgrest-auth library, in-process) + shared
+   PostgREST HTTP client (web and TUI).
 2. ✅ `web/app.py` — Streamlit with a login gate and clickable Altair heatmaps
    (habit completion + workout volume), per-set prefill, all data via PostgREST.
 3. ✅ `tui/` — Textual screens (clickable heatmaps, Enter-to-log form); logs in
@@ -278,8 +279,10 @@ The PostgREST migration is complete:
 4. ✅ `deploy/02_schema.sql` + `deploy/03_secure_users.sql` — idempotent schema,
    applied by `src/bootstrap.py` from the app's own startup (replaced Alembic
    2026-08).
-5. ✅ Shared `auth` service (`../postgrest-auth/`) + `postgrest` added to
-   `docker_compose_projects.yaml`; SWAG confs for `pgrest`/`auth`.
+5. ✅ `postgrest` added to `docker_compose_projects.yaml`, with a SWAG conf
+   for `pgrest`. Login first went through a shared `auth` service; it now runs
+   in-process through the postgrest-auth library (`../postgrest-auth/`), which
+   replaced that service.
 6. ✅ `scripts/create_user.py` (seed users) and `scripts/backup_to_files.py`
    (CSV/Parquet backup) remain as direct-DB ops tools.
 

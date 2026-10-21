@@ -62,10 +62,10 @@ def test_table_exists(cur, table):
 
 
 def test_users_has_the_standard_auth_shape(cur):
-    """The shared postgrest-auth service selects role and disabled at login, and
-    session validation compares a token's iat against password_changed_at. A
-    missing column here breaks login for the whole app, so it is asserted rather
-    than assumed."""
+    """Login (the postgrest-auth library) selects role and disabled, and session
+    validation compares a token's iat against password_changed_at. A missing
+    column here breaks login for the whole app, so it is asserted rather than
+    assumed."""
     cur.execute(
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_schema = 'load_log' AND table_name = 'users'"

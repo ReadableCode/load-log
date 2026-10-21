@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import sys
 import time
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import altair as alt
 import pandas as pd
-import requests
+import postgrest_auth
 import streamlit as st
 
 # Ensure src/ on path when launched via `streamlit run src/web/app.py`
@@ -19,13 +20,16 @@ SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-# The app talks to PostgREST over HTTP via the shared api_client — no direct
-# Postgres. (The TUI uses the same client.)
+# The app's data goes over HTTP to PostgREST via the shared api_client — no
+# direct Postgres outside login and the startup bootstrap. (The TUI uses the same
+# client.)
 import api_client  # noqa: E402
 import bootstrap  # noqa: E402
 
 # %%
 # Setup #
+
+log = logging.getLogger("load_log.web")
 
 st.set_page_config(page_title="Load Log", page_icon="🏋", layout="wide")
 
@@ -325,9 +329,9 @@ def _token() -> str:
 
 def _browser_ip() -> str | None:
     """The viewer's IP as the SWAG proxy reported it (first X-Forwarded-For
-    hop), forwarded to the auth service so its per-IP lockout counts the
-    browser rather than this container. None when running without a proxy
-    (local dev) — the auth service falls back to the socket peer."""
+    hop), passed to login so its per-IP lockout counts the browser rather than
+    this container. None when running without a proxy (local dev) — login then
+    applies only the per-username lockout."""
     headers = getattr(st.context, "headers", None)
     if not headers:
         return None
@@ -362,21 +366,15 @@ def require_login() -> bool:
         if submitted:
             try:
                 token = api_client.login(username, password, client_ip=_browser_ip())
-            except requests.HTTPError as exc:
-                resp = exc.response
-                if resp is not None and resp.status_code == 429:
-                    try:
-                        detail = resp.json().get("detail", "")
-                    except ValueError:
-                        detail = ""
-                    st.error(
-                        detail or "Too many attempts — try again in a few minutes."
-                    )
-                else:
-                    st.error("Invalid username or password.")
+            except postgrest_auth.InvalidCredentials:
+                st.error("Invalid username or password.")
                 return False
-            except requests.RequestException:
-                st.error("Could not reach the auth service. Try again shortly.")
+            except postgrest_auth.LoginLocked as exc:
+                st.error(str(exc))
+                return False
+            except api_client.LoginUnavailable as exc:
+                log.error("login unavailable: %s", exc)
+                st.error("Login is unavailable. Try again shortly.")
                 return False
             st.session_state["jwt"] = token
             st.rerun()

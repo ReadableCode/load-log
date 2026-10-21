@@ -1,10 +1,11 @@
 # %%
 """Insert a user into load_log.users with an argon2id password hash.
 
-Run AFTER the users table exists (the app's startup bootstrap creates it). The auth service
-reads this table to validate credentials and issue JWTs — argon2id is the
-standard; pre-existing bcrypt rows keep verifying and get rehashed by the
-service on the next successful login.
+Run AFTER the users table exists (the app's startup bootstrap creates it). Login
+reads this table over the app's superuser connection (postgrest-auth library)
+to verify credentials and mint JWTs. The hash comes from the same library:
+argon2id is the standard; pre-existing bcrypt rows keep verifying and get
+rehashed on the next successful login.
 
 Run:
     cd backend && uv run python scripts/create_user.py --username jason --password 'hunter2'
@@ -21,8 +22,8 @@ import argparse
 import os
 import sys
 
+import postgrest_auth
 import psycopg2
-from argon2 import PasswordHasher
 
 # allow `uv run python scripts/create_user.py` from backend/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -42,7 +43,7 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 
 
 def create_user(username: str, password: str) -> None:
-    password_hash = PasswordHasher().hash(password)
+    password_hash = postgrest_auth.hash_password(password)
 
     conn = psycopg2.connect(
         host=POSTGRES_URL,

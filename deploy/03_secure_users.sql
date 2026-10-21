@@ -3,9 +3,9 @@
 -- 02_schema.sql. Running this file by hand with psql might work, but it is not
 -- the intended use: change it here and let the app apply it.
 --
--- The shared postgrest-auth service reads load_log.users directly as the
--- superuser to verify a login, so the PostgREST-facing roles need no grant on
--- it — and must not have one, including via an embedded resource.
+-- load_log.users is read by the app's superuser connection at login
+-- (postgrest-auth library), so the PostgREST-facing roles need no grant on it —
+-- and must not have one, including via an embedded resource.
 --
 -- Idempotent: REVOKE of a privilege that was never granted is a no-op.
 
@@ -25,5 +25,6 @@ REVOKE ALL ON load_log.users FROM web_anon;
 -- pair per table, with both USING and WITH CHECK. Omitting WITH CHECK leaves
 -- users able to write rows they cannot read.
 --
--- The auth service already puts user_id in the JWT, so the claim is ready.
+-- Login (the postgrest-auth library) already puts user_id in the JWT, so the
+-- claim is ready.
 -- ----------------------------------------------------------------------------

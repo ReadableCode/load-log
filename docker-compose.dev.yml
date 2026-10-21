@@ -1,12 +1,13 @@
 # Local dev stack for cloners: a self-contained load-log (its own throwaway
-# Postgres + PostgREST + auth + Streamlit). Mirrors the prod architecture so the
-# app code behaves the same locally as it does behind tinkernet.me.
+# Postgres + PostgREST + Streamlit). Mirrors the prod architecture so the app
+# code behaves the same locally as it does behind tinkernet.me: login runs
+# in-process (postgrest-auth library) and signs with the same secret PostgREST
+# verifies.
 #
 #   docker compose -f docker-compose.dev.yml up --build
 #
 #   App:       http://localhost:8505
 #   PostgREST: http://localhost:3000
-#   Auth:      http://localhost:8000
 #
 # First run: the streamlit container converges the schema on startup
 # (src/bootstrap.py applies deploy/02_schema.sql and 03_secure_users.sql), which
@@ -39,24 +40,6 @@ services:
     depends_on:
       - postgres
 
-  # The shared auth service (same app-agnostic image as prod, built from the
-  # sibling postgrest-auth/ repo). Not a per-app container.
-  auth:
-    build:
-      context: ../postgrest-auth
-    container_name: load_log_dev_auth
-    environment:
-      POSTGRES_URL: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: apps
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: localdev
-      JWT_SECRET: localdevsecret_at_least_32_chars_long
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
-
   load-log-streamlit:
     build:
       # Repo root: the Dockerfile needs deploy/*.sql as well as backend/.
@@ -74,8 +57,11 @@ services:
       - --server.headless=true
     environment:
       POSTGREST_URL: http://postgrest:3000
-      AUTH_URL: http://auth:8000
-      # Superuser connection for the startup schema bootstrap (src/bootstrap.py):
+      # Same secret as the postgrest service's PGRST_JWT_SECRET: login signs
+      # the session JWT with it.
+      POSTGREST_JWT_SECRET: localdevsecret_at_least_32_chars_long
+      # Superuser connection for login and the startup schema bootstrap
+      # (src/bootstrap.py):
       POSTGRES_URL: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: apps
@@ -85,4 +71,3 @@ services:
       - "8505:8505"
     depends_on:
       - postgrest
-      - auth

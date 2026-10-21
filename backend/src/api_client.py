@@ -5,25 +5,31 @@ import os
 from datetime import date, timedelta
 
 import pandas as pd
+import postgrest_auth
+import psycopg2
 import requests
+
+import bootstrap
+import config  # side effect: loads the repo .env into os.environ
 
 # %%
 # Config #
 
-# Shared PostgREST client used by BOTH the Streamlit web app and the TUI. Every
-# client gets a JWT from the auth service (login) and sends it as a Bearer token
-# on each request — Postgres is never hit directly. Tables are exposed at the
-# schema root (e.g. /workout_sets) — paths are NOT prefixed with /load_log.
-# Every request pins the schema via Accept-Profile/Content-Profile headers so
-# nothing depends on load_log being first in the server's PGRST_DB_SCHEMAS.
+# Shared client used by BOTH the Streamlit web app and the TUI. login() verifies
+# the password in-process (postgrest-auth library, over the superuser connection)
+# and returns a JWT; every data call then goes to PostgREST with that JWT as a
+# Bearer token, so application data never touches Postgres directly. Tables are
+# exposed at the schema root (e.g. /workout_sets) — paths are NOT prefixed with
+# /load_log. Every request pins the schema via Accept-Profile/Content-Profile
+# headers so nothing depends on load_log being first in the server's
+# PGRST_DB_SCHEMAS.
 POSTGREST_URL = os.environ.get("POSTGREST_URL", "https://pgrest.tinkernet.me").rstrip(
     "/"
 )
-AUTH_URL = os.environ.get("AUTH_URL", "https://auth.tinkernet.me").rstrip("/")
 
-# load-log's Postgres schema. The shared auth service maps this to the
-# load_log_user role in the JWT it issues; it is also the profile PostgREST
-# requests are pinned to (see _headers).
+# load-log's Postgres schema. login() reads load_log.users and mints the
+# load_log_user role claim from it; it is also the profile PostgREST requests
+# are pinned to (see _headers).
 APP_SCHEMA = os.environ.get("APP_SCHEMA", "load_log")
 
 # Network timeout (seconds) for every HTTP call.
@@ -34,26 +40,45 @@ TIMEOUT = 15
 # Auth #
 
 
+class LoginUnavailable(Exception):
+    """Login could not be attempted: POSTGRES_* or the JWT secret is unset, the
+    schema name is invalid, or the database is unreachable. str() carries the
+    cause, for the web app's log and the TUI's exit message."""
+
+
 def login(username: str, password: str, client_ip: str | None = None) -> str:
-    """Exchange credentials for a JWT via the auth service. Returns the token.
+    """Verify credentials against load_log.users and return a signed JWT.
 
-    Raises requests.HTTPError on bad credentials (401) or when the auth
-    service's brute-force lockout trips (429 — inspect
-    exc.response.status_code to tell them apart).
+    Runs in-process through the postgrest-auth library over the superuser
+    connection, the only role that can read load_log.users. The token is
+    signed with PostgREST's secret (config.JWT_SECRET) and carries
+    role=load_log_user, valid for 24 hours.
 
-    client_ip: the end user's IP, forwarded as X-Forwarded-For. The Streamlit
-    app calls the auth service server-side, so without this every visitor
-    would share the container's IP in the auth service's per-IP lockout.
+    Raises postgrest_auth.InvalidCredentials (wrong password, unknown or
+    disabled user), postgrest_auth.LoginLocked (5 failures in 15 minutes per
+    username or client IP; str() says how long the lock lasts), or
+    LoginUnavailable.
+
+    client_ip: the end user's IP, for the per-IP lockout key. The Streamlit
+    app logs in server-side, so without it every visitor would share one key.
     """
-    headers = {"X-Forwarded-For": client_ip} if client_ip else {}
-    resp = requests.post(
-        f"{AUTH_URL}/token",
-        json={"schema": APP_SCHEMA, "username": username, "password": password},
-        headers=headers,
-        timeout=TIMEOUT,
-    )
-    resp.raise_for_status()
-    return resp.json()["token"]
+    if not bootstrap.db_configured():
+        raise LoginUnavailable(
+            "POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB are not set"
+        )
+    if not config.JWT_SECRET:
+        raise LoginUnavailable("POSTGREST_JWT_SECRET (or JWT_SECRET) is not set")
+    try:
+        return postgrest_auth.login(
+            lambda: psycopg2.connect(bootstrap.superuser_dsn(), connect_timeout=10),
+            APP_SCHEMA,
+            username,
+            password,
+            jwt_secret=config.JWT_SECRET,
+            client_ip=client_ip,
+        )
+    except (psycopg2.Error, ValueError) as exc:
+        raise LoginUnavailable(str(exc).strip() or type(exc).__name__) from exc
 
 
 # %%

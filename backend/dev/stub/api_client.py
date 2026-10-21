@@ -61,6 +61,10 @@ def _gen_sets():
 _SETS = _gen_sets()
 
 
+class LoginUnavailable(Exception):
+    """Same name as the real module's, so the web app's except clause resolves."""
+
+
 def login(username, password, client_ip=None):
     return "stub-jwt"
 

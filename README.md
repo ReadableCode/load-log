@@ -32,13 +32,15 @@ Screenshots use synthetic data from a local stub client, not a real account.
 
 ## How it works
 
-Neither UI talks to Postgres directly. Both log in through a shared,
-app-agnostic auth service to get a JWT, then read and write through PostgREST
-over HTTP:
+Neither UI reads or writes its data in Postgres directly. Both log in
+in-process through the postgrest-auth library (it checks `load_log.users` over
+the superuser connection and signs a JWT), then read and write through
+PostgREST over HTTP:
 
 ```
- TUI / Web ──POST /token {schema,username,password}──▶ auth  ──▶ JWT (role=load_log_user, user_id)
-     │                                                              │
+ TUI / Web ──login(username,password)──▶ postgrest-auth ──▶ JWT (role=load_log_user, user_id)
+     │        (in-process library; reads load_log.users        │
+     │         over the superuser connection)                  │
      └────────── api_client.py ──Authorization: Bearer <jwt>──▶ PostgREST ──▶ Postgres
                  (requests; returns dict/list[dict]/DataFrame)        (apps DB · load_log schema)
 ```
@@ -48,11 +50,14 @@ over HTTP:
   `load_log_user` role.
 - All data access is in [`backend/src/api_client.py`](backend/src/api_client.py),
   shared by the web app and the TUI. The UIs contain no SQL.
-- PostgREST and the auth service are shared server infrastructure (added once,
-  serve every app). The auth service lives in the sibling
-  [`postgrest-auth`](https://github.com/ReadableCode/postgrest-auth) repo.
-- Direct Postgres connections remain only in the startup schema bootstrap and
-  the `scripts/` helpers.
+- PostgREST is shared server infrastructure (added once, serves every app).
+  Login is the [`postgrest-auth`](https://github.com/ReadableCode/postgrest-auth)
+  library, a git dependency pinned to a tag in `backend/pyproject.toml`: it
+  verifies the password (argon2id, legacy bcrypt rehashed on login, 5-failure /
+  15-minute lockout per username and per IP) and signs the JWT with PostgREST's
+  secret.
+- Direct Postgres connections remain only in login (reading `load_log.users`),
+  the startup schema bootstrap and the `scripts/` helpers.
 
 For full design and schema details see [`backend/docs/`](backend/docs/) and
 [`CLAUDE.md`](CLAUDE.md).
@@ -62,8 +67,8 @@ For full design and schema details see [`backend/docs/`](backend/docs/) and
 - Python 3.13 (pinned in `backend/.python-version`)
 - [uv](https://docs.astral.sh/uv/): `brew install uv` (macOS) or
   `curl -LsSf https://astral.sh/uv/install.sh | sh` (Linux)
-- A reachable PostgREST and auth service (your own, or the self-contained dev
-  stack below)
+- A reachable PostgREST and Postgres (your own, or the self-contained dev stack
+  below)
 - A login user in `load_log.users` (create one with `scripts/create_user.py`,
   below)
 
@@ -81,17 +86,20 @@ cd backend && uv sync
 `.env` keys:
 
 ```env
-# Clients (web + TUI). Without these set, the code falls back to the author's
-# own deployment (defaults in backend/src/api_client.py); set them to point at
-# your server or a local dev stack.
+# Clients (web + TUI). Without it set, the code falls back to the author's own
+# deployment (default in backend/src/api_client.py); set it to point at your
+# server or a local dev stack.
 POSTGREST_URL=https://pgrest.example.com
-AUTH_URL=https://auth.example.com
+
+# PostgREST's JWT secret: login (web + TUI) signs the session JWT with it.
+POSTGREST_JWT_SECRET=<postgrest-jwt-secret>
 
 # The TUI is non-interactive: it logs in with these at startup.
 LOAD_LOG_USERNAME=<your-username>
 LOAD_LOG_PASSWORD=<your-password>
 
-# Direct-DB only: the startup schema bootstrap and scripts/. Not the data path.
+# Direct-DB: login (web + TUI read load_log.users), the startup schema bootstrap
+# and scripts/. Not the data path.
 POSTGRES_URL=<host of the shared Postgres>
 POSTGRES_PORT=5432
 POSTGRES_USER=<user>
@@ -118,8 +126,8 @@ PYTHONPATH=src uv run streamlit run src/web/app.py
 PYTHONPATH=src uv run python -m tui.app
 ```
 
-Both use `POSTGREST_URL` / `AUTH_URL` from `.env`; point them at a local dev
-stack to develop without a server. [`backend/dev/`](backend/dev/README.md) has a
+Both use `POSTGREST_URL`, `POSTGRES_*` and `POSTGREST_JWT_SECRET` from `.env`;
+point them at a local dev stack to develop without a server. [`backend/dev/`](backend/dev/README.md) has a
 stub `api_client` with synthetic data for previewing the web UI with no network.
 
 ### TUI cheatsheet
@@ -156,15 +164,16 @@ keyboard shortcuts available right now, and each Footer entry is clickable.
 Two options:
 
 - **`docker-compose.yml`** (repo root): just the Streamlit container, pointed at
-  the shared PostgREST and auth service from `POSTGREST_URL` / `AUTH_URL`. Bring
-  it up with `docker-compose up -d --build`; web on `http://localhost:8505`.
+  the shared PostgREST and Postgres from `POSTGREST_URL` / `POSTGRES_*`, with
+  `POSTGREST_JWT_SECRET` for login. Bring it up with
+  `docker-compose up -d --build`; web on `http://localhost:8505`.
 - **`docker-compose.dev.yml`**: a fully self-contained stack (its own throwaway
-  Postgres + PostgREST + the shared auth service + Streamlit), so you can develop
-  without touching a server:
+  Postgres + PostgREST + Streamlit), so you can develop without touching a
+  server:
 
   ```bash
   docker compose -f docker-compose.dev.yml up --build
-  # App http://localhost:8505 · PostgREST http://localhost:3000 · Auth http://localhost:8000
+  # App http://localhost:8505 · PostgREST http://localhost:3000
   ```
 
   First boot converges the schema: the app's own startup bootstrap applies
@@ -229,7 +238,7 @@ failing test.
 
 ## Production deployment
 
-In production the shared `postgrest` and `auth` services and the
+In production the shared `postgrest` service and the
 `load-log-streamlit` service (its compose fragment is under
 [`deploy/`](deploy/)) run from a
 separate Docker compose repo on a home server, behind a SWAG reverse proxy. The

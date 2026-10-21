@@ -4,7 +4,7 @@
 # the repo root and the ${VARS} below interpolate from this
 # repo's .env (a symlink to personal_credentials/personal.env). depends_on
 # resolves in the merged compose model: postgres/postgrest stay in the
-# central file, auth comes from the postgrest-auth repo's fragment.
+# central file.
 services:
   load-log-streamlit:
     image: load_log_streamlit_image
@@ -24,12 +24,15 @@ services:
       - --server.address=0.0.0.0
       - --server.headless=true
     environment:
-      # App talks to Postgres ONLY through PostgREST + the shared auth service.
+      # Application data moves ONLY through PostgREST.
       POSTGREST_URL: http://postgrest:3000
-      AUTH_URL: http://auth:8000
-      # POSTGRES_* is the app's superuser connection for schema bootstrap at
-      # startup (src/bootstrap.py) — one of the three permitted direct-to-Postgres
-      # paths. Application data still moves only over PostgREST.
+      # PostgREST's secret: login (the postgrest-auth library, in-process)
+      # signs the session JWT with it.
+      POSTGREST_JWT_SECRET: ${POSTGREST_JWT_SECRET}
+      # POSTGRES_* is the app's superuser connection for login (it reads
+      # load_log.users, which PostgREST cannot reach) and for the schema
+      # bootstrap at startup (src/bootstrap.py). Application data still moves
+      # only over PostgREST.
       POSTGRES_URL: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: apps
@@ -38,7 +41,6 @@ services:
     depends_on:
       - postgres
       - postgrest
-      - auth
     ports:
       - "8505:8505"
     restart: unless-stopped

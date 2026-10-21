@@ -40,3 +40,9 @@ POSTGRES_USER = os.getenv("POSTGRES_USER", "")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "apps")
+
+# PostgREST's JWT secret. Login (api_client.login) signs its tokens with it, so
+# it must equal the deployment's PGRST_JWT_SECRET. POSTGREST_JWT_SECRET is the
+# name it has in personal_credentials/personal.env (the repo's .env symlink);
+# JWT_SECRET is accepted as a fallback name.
+JWT_SECRET = os.getenv("POSTGREST_JWT_SECRET") or os.getenv("JWT_SECRET", "")

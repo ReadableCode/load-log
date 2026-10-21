@@ -1,13 +1,14 @@
 # Dev fixtures
 
-Tools for previewing the app locally without touching the real auth service,
-PostgREST, or Postgres. Nothing in this directory is imported by production
-code — it sits outside `src/` so that can't happen by accident.
+Tools for previewing the app locally without a real login, PostgREST, or
+Postgres. Nothing in this directory is imported by production code — it sits
+outside `src/` so that can't happen by accident.
 
 ## Browser preview with fake data
 
-`stub/api_client.py` is a drop-in fake of `src/api_client.py`: any
-username/password logs in, and every read returns deterministic synthetic
+`stub/api_client.py` is a drop-in fake of `src/api_client.py` (same `login`
+signature and `LoginUnavailable` error): any username/password logs in
+without a database or JWT secret, and every read returns deterministic synthetic
 data (three exercises, ~180 days of Mon/Wed/Fri sessions with progressive
 overload). It shadows the real client via `PYTHONPATH` ordering — the stub
 directory is listed first, so `import api_client` resolves here instead.

@@ -1,9 +1,10 @@
 # %%
 """Real-PostgREST conformance tests (I10).
 
-Exercises the path the app actually uses: log in to the shared auth service for
-a JWT, then read through PostgREST over HTTP. No mocks and no skip path — an
-unreachable dependency is a red test.
+Exercises the path the app actually uses: log in through api_client.login (the
+postgrest-auth library against the real load_log.users) for a JWT, then read
+through PostgREST over HTTP. No mocks and no skip path — an unreachable
+dependency is a red test.
 
 Read-only. Every request here is a GET; nothing writes.
 """
@@ -13,10 +14,13 @@ Read-only. Every request here is a GET; nothing writes.
 
 import os
 
+import jwt
+import postgrest_auth
 import pytest
 import requests
 
 import api_client
+import config
 
 # %%
 # Fixtures #
@@ -40,18 +44,19 @@ def token():
 
 
 def test_login_returns_a_jwt(token):
-    """Three dot-separated segments is the shape, not the signature — verifying
-    the signature would need the shared secret, which the app deliberately does
-    not hold."""
-    assert token.count(".") == 2, "auth service did not return a JWT"
+    """Login signs with PostgREST's secret (config.JWT_SECRET), and the role
+    claim is the one PostgREST switches into — a token PostgREST cannot verify,
+    or one naming the wrong role, would 401 every data call."""
+    payload = jwt.decode(token, config.JWT_SECRET, algorithms=["HS256"])
+    assert payload["role"] == "load_log_user"
+    assert payload["user_id"] and payload["exp"] > payload["iat"]
 
 
 def test_login_rejects_a_bad_password():
-    with pytest.raises(requests.HTTPError) as exc:
+    # The lockout is in-memory per process, so one failure in a fresh test run is
+    # never LoginLocked: anything but InvalidCredentials is a real fault.
+    with pytest.raises(postgrest_auth.InvalidCredentials):
         api_client.login("definitely-not-a-real-user", "definitely-not-the-password")
-    # 401 unauthorized, or 429 if the service's brute-force lockout has tripped
-    # from a previous run — both mean the credential was not accepted.
-    assert exc.value.response.status_code in (401, 429)
 
 
 # %%

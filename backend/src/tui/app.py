@@ -71,7 +71,7 @@ class LoadLogApp(App):
 
     def __init__(self, token: str) -> None:
         super().__init__()
-        # JWT from the auth service; threaded into every screen, which sends it
+        # JWT from api_client.login; threaded into every screen, which sends it
         # as a Bearer token on each PostgREST request via api_client.
         self.token = token
 
@@ -94,9 +94,11 @@ def main() -> None:
     # is logged, not a reason the TUI refuses to open.
     bootstrap.bootstrap_best_effort()
 
-    # The TUI is just another PostgREST client: get a JWT from the auth service
-    # with credentials from the environment (.env), then run. Non-interactive so
-    # it works headless / scripted, identically to any other client.
+    # The TUI is just another PostgREST client: log in with credentials from the
+    # environment (.env) to get a JWT, then run. Non-interactive so it works
+    # headless / scripted, identically to any other client. Login runs
+    # in-process (postgrest-auth library), so .env also needs POSTGRES_* and
+    # POSTGREST_JWT_SECRET.
     username = os.environ.get("LOAD_LOG_USERNAME")
     password = os.environ.get("LOAD_LOG_PASSWORD")
     if not username or not password:
@@ -105,7 +107,7 @@ def main() -> None:
         )
     try:
         token = api_client.login(username, password)
-    except Exception as exc:  # noqa: BLE001 — surface any login/network failure cleanly
+    except Exception as exc:  # noqa: BLE001 — surface any login failure cleanly
         sys.exit(f"Login failed: {exc}")
     LoadLogApp(token).run()
 

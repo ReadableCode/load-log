@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS habit_completions (
 
 ### `users`
 
-Read only by the shared postgrest-auth service, over its own superuser
+Read only at login, by the postgrest-auth library over the app's superuser
 connection. `deploy/03_secure_users.sql` revokes this table from `load_log_user`
 and `web_anon`, so there is no PostgREST path to a password hash.
 
@@ -65,21 +65,22 @@ CREATE TABLE IF NOT EXISTS load_log.users (
 );
 ```
 
-This is the fleet-standard shape — every schema postgrest-auth serves has it.
+This is the fleet-standard shape — every app that logs in through
+postgrest-auth has it.
 `role` and `disabled` are read at login; `password_changed_at` is what lets a
 password change or a disable revoke live sessions without a server-side session
 store (tokens issued before it are rejected).
 
 `password_hash` is an opaque string, never parsed or re-encoded. Algorithms are
-self-identifying by prefix (`$2b$` bcrypt, `$argon2id$` argon2id) — the service
+self-identifying by prefix (`$2b$` bcrypt, `$argon2id$` argon2id) — the library
 verifies both and rehashes bcrypt rows to argon2id on the next successful login.
 
 Two notes on the live table specifically. Its `created_at` is nullable, because
 the original migration omitted `NOT NULL`; correcting that needs an
 `ALTER COLUMN`, which is deliberately kept out of a boot-time path, and the
 column always has a value in practice. And load-log does not compare a token's
-`iat` against `password_changed_at` — it holds the JWT opaquely and relies on
-PostgREST's `exp` check. That is acceptable while load-log is single-user with
+`iat` against `password_changed_at` — it signs the JWT at login but never
+decodes it afterwards, relying on PostgREST's `exp` check. That is acceptable while load-log is single-user with
 RLS deferred; revisit if either changes.
 
 ---

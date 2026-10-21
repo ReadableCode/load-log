@@ -106,7 +106,7 @@ class WorkoutsScreen(Screen):
 
     def __init__(self, token: str) -> None:
         super().__init__()
-        # JWT from the auth service — sent as a Bearer token on every PostgREST
+        # JWT from api_client.login — sent as a Bearer token on every PostgREST
         # call via api_client. Threaded in from the app.
         self.token = token
         self.selected_date: date = date.today()

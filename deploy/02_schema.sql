@@ -16,8 +16,8 @@
 --     is skipped there, and only the users ADD COLUMN statements do anything.
 --
 -- This file reproduces the live schema as of Alembic 0003 (verified against
--- information_schema on 2026-08-28), plus the four users columns the shared
--- postgrest-auth service reads. That combination is SCHEMA_VERSION 1.
+-- information_schema on 2026-08-28), plus the four users columns login (the
+-- postgrest-auth library) reads. That combination is SCHEMA_VERSION 1.
 
 CREATE SCHEMA IF NOT EXISTS load_log;
 
@@ -65,14 +65,13 @@ CREATE INDEX IF NOT EXISTS workout_sets_date_idx
 -- ---------------------------------------------------------------------------
 -- Credentials
 -- ---------------------------------------------------------------------------
--- Read ONLY by the shared postgrest-auth service over its own superuser
--- connection. 03_secure_users.sql revokes this table from every PostgREST-facing
+-- Read ONLY by the app's superuser connection at login (postgrest-auth
+-- library). 03_secure_users.sql revokes this table from every PostgREST-facing
 -- role, so there is no HTTP path to a password hash (I4).
 --
 -- password_hash is an opaque string. Nothing here parses or re-encodes it —
 -- algorithms are self-identifying by prefix ($2b$ bcrypt, $argon2id$ argon2id)
--- and the auth service rehashes bcrypt rows to argon2id on the next successful
--- login.
+-- and a successful login rehashes a bcrypt row to argon2id.
 
 CREATE TABLE IF NOT EXISTS load_log.users (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -90,7 +89,7 @@ CREATE TABLE IF NOT EXISTS load_log.users (
 -- existing table wholesale rather than reconciling its columns. These ALTERs are
 -- what actually converges production; on a fresh database they are no-ops.
 --
--- The shared auth service selects role and disabled at login, and apps that
+-- Login (the postgrest-auth library) selects role and disabled, and apps that
 -- validate sessions compare the token's iat against password_changed_at.
 ALTER TABLE load_log.users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
 ALTER TABLE load_log.users ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT '';
